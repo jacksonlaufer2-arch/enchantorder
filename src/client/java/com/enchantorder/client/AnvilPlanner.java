@@ -182,6 +182,9 @@ public final class AnvilPlanner {
 	// When you enchant another copy of the item the same way, how many finished copies (of each item
 	// state) you already had, so those don't count as this run's steps being done.
 	private final Map<Need, Integer> alreadyHad = new HashMap<>();
+	// How many other copies (not the planned one) already looked like each item state while the planned copy
+	// was around. If the planned copy is used or renamed, any copy counts, minus these.
+	private final Map<Need, Integer> othersHad = new HashMap<>();
 	// True while the anvil steps are being done automatically: the plan must not change under it.
 	private boolean locked;
 
@@ -345,12 +348,21 @@ public final class AnvilPlanner {
 			return true;
 		}
 		// A book with the same enchantments but another work penalty (made with another copy of a book)
-		// counts too, but only once one of its single books is gone: otherwise it was there all along.
-		return owned.stream().anyMatch(stack -> looksLike(stack, step.makes))
-				&& step.makes.enchantments().keySet().stream().anyMatch(enchantment -> {
-					Need single = singleBooks.get(enchantment);
-					return single == null || owned.stream().noneMatch(stack -> matches(stack, single));
-				});
+		// counts too, but only once something this step itself uses up is gone: otherwise it was there all
+		// along. That is one of its own single books, or, if it combines two books made earlier, both of those.
+		if (owned.stream().noneMatch(stack -> looksLike(stack, step.makes))) {
+			return false;
+		}
+		int index = step.number - 1;
+		boolean usesSingles = bookSteps.containsValue(index);
+		if (usesSingles) {
+			return bookSteps.entrySet().stream().anyMatch(entry -> entry.getValue() == index
+					&& owned.stream().noneMatch(stack -> matches(stack, singleBooks.get(entry.getKey()))));
+		}
+		boolean singlesUsed = step.makes.enchantments().keySet().stream()
+				.anyMatch(enchantment -> owned.stream().noneMatch(stack -> matches(stack, singleBooks.get(enchantment))));
+		return singlesUsed && steps.stream().filter(earlier -> earlier.usedBy == index)
+				.allMatch(earlier -> owned.stream().noneMatch(stack -> looksLike(stack, earlier.makes)));
 	}
 
 	/**
@@ -359,8 +371,12 @@ public final class AnvilPlanner {
 	 * used or renamed since, so then any copy with those enchantments counts.
 	 */
 	private long countMade(Step step, List<ItemStack> owned) {
-		boolean plannedCopyThere = owned.stream().anyMatch(stack -> sameApartFromEnchanting(stack, item));
-		return owned.stream().filter(stack -> looksLike(stack, step.makes) && (!plannedCopyThere || sameApartFromEnchanting(stack, item))).count();
+		if (owned.stream().anyMatch(stack -> sameApartFromEnchanting(stack, item))) {
+			// Remember how many other copies look like this already, so they aren't counted later on.
+			othersHad.put(step.makes, (int) owned.stream().filter(stack -> looksLike(stack, step.makes) && !sameApartFromEnchanting(stack, item)).count());
+			return owned.stream().filter(stack -> looksLike(stack, step.makes) && sameApartFromEnchanting(stack, item)).count();
+		}
+		return Math.max(0, owned.stream().filter(stack -> looksLike(stack, step.makes)).count() - othersHad.getOrDefault(step.makes, 0));
 	}
 
 	/**
@@ -374,9 +390,13 @@ public final class AnvilPlanner {
 			if (step.done) {
 				continue;
 			}
+			int index = step.number - 1;
 			for (Need need : List.of(step.firstNeeds, step.secondNeeds)) {
 				if (need.isItem() && need.startingThing()) {
 					continue; // Before any step, putting the item in the anvil simply plans again for it.
+				}
+				if (steps.stream().anyMatch(earlier -> earlier.usedBy == index && !earlier.done && earlier.makes.equals(need))) {
+					continue; // Not made yet, so whatever looks like it now isn't it.
 				}
 				if (owned.stream().noneMatch(stack -> matches(stack, need))
 						&& owned.stream().anyMatch(stack -> looksLike(stack, need) && (!need.isItem() || sameApartFromEnchanting(stack, item)))) {
@@ -572,6 +592,7 @@ public final class AnvilPlanner {
 		bookPenalties.clear();
 		usedBooks.clear();
 		alreadyHad.clear();
+		othersHad.clear();
 		plan = null;
 		steps = List.of();
 		bookSteps = Map.of();
@@ -587,6 +608,7 @@ public final class AnvilPlanner {
 		bookPenalties.clear();
 		usedBooks.clear();
 		alreadyHad.clear();
+		othersHad.clear();
 		for (Choice choice : choices) {
 			Integer level = previous.get(choice.enchantment);
 			// Skip what the item already has at the ticked level (or higher): that part is done.
@@ -608,6 +630,8 @@ public final class AnvilPlanner {
 		planned.set(DataComponents.REPAIR_COST, itemWorkPenalty());
 		boolean renamed = !planned.getHoverName().equals(item.getHoverName());
 		item = planned;
+		// Copies finished earlier don't look like this one, so they no longer need to be left out.
+		alreadyHad.clear();
 		if (renamed) {
 			recalculate(); // So the steps show the new name.
 		}
