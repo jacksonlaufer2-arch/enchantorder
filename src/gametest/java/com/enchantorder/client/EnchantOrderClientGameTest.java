@@ -39,6 +39,15 @@ public class EnchantOrderClientGameTest implements FabricClientGameTest {
 
 	@Override
 	public void runTest(ClientGameTestContext context) {
+		try {
+			test(context);
+		} catch (Throwable failure) {
+			context.takeScreenshot("failure");
+			throw failure;
+		}
+	}
+
+	private void test(ClientGameTestContext context) {
 		try (TestSingleplayerContext singleplayer = context.worldBuilder()
 				.adjustSettings(creator -> creator.setGameMode(WorldCreationUiState.SelectedGameMode.SURVIVAL))
 				.create()) {
@@ -63,12 +72,13 @@ public class EnchantOrderClientGameTest implements FabricClientGameTest {
 			context.getInput().pressKey(options -> options.keyUse);
 			context.waitForScreen(AnvilScreen.class);
 			context.waitTicks(5);
+			context.takeScreenshot("0-anvil-open");
 			check(context, client -> !AnvilPlanner.INSTANCE.isActive(), "the panels should stay hidden until an item goes in");
 
-			// Shift-click the sword from the hotbar into the anvil.
-			context.getInput().holdShift();
+			// Move the sword from the hotbar into the anvil (the test can't hold shift while clicking).
 			clickInAnvil(context, 8 + 8, 142 + 8);
-			context.getInput().releaseShift();
+			context.waitFor(client -> !anvil(client).getMenu().getCarried().isEmpty());
+			clickInAnvil(context, 27 + 8, 47 + 8);
 			context.waitFor(client -> anvil(client).getMenu().getSlot(0).hasItem());
 			context.waitTicks(3);
 			check(context, client -> AnvilPlanner.INSTANCE.isActive(), "the panels should show up for a sword");
@@ -103,10 +113,10 @@ public class EnchantOrderClientGameTest implements FabricClientGameTest {
 			context.waitFor(client -> anvil(client).getMenu().getCarried().isEmpty());
 
 			// Take the sword back out: the plan should stay on screen.
-			context.getInput().holdShift();
 			clickInAnvil(context, 27 + 8, 47 + 8);
-			context.getInput().releaseShift();
-			context.waitFor(client -> !anvil(client).getMenu().getSlot(0).hasItem());
+			context.waitFor(client -> !anvil(client).getMenu().getCarried().isEmpty());
+			clickInAnvil(context, 26 + 8, 84 + 8);
+			context.waitFor(client -> !anvil(client).getMenu().getSlot(0).hasItem() && anvil(client).getMenu().getCarried().isEmpty());
 			context.waitTicks(3);
 			check(context, client -> AnvilPlanner.INSTANCE.isActive() && AnvilPlanner.INSTANCE.currentStep() == 0,
 					"the plan should stay after taking the sword out");

@@ -33,6 +33,7 @@ jobs:
   # (see src/gametest). Screenshots of each step are saved as the "Screenshots" artifact.
   game-test:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - name: checkout repository
         uses: actions/checkout@v6

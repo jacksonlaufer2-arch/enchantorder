@@ -42,6 +42,9 @@ public final class AnvilOverlay {
 
 	/** Called every time an anvil screen opens or is resized. */
 	public static void attach(AnvilScreen screen) {
+		if (Screens.getWidgets(screen).stream().anyMatch(widget -> widget instanceof PanelWidget)) {
+			return; // Already attached since the screen was last set up.
+		}
 		AnvilOverlay overlay = new AnvilOverlay(screen);
 		ScreenEvents.afterTick(screen).register(s -> AnvilPlanner.INSTANCE.sync(overlay.menu));
 		ScreenMouseEvents.allowMouseClick(screen).register((s, event) -> overlay.allowClick(event));
