@@ -85,8 +85,19 @@ public final class AnvilPlanner {
 		}
 	}
 
-	/** One of the two things you put in the anvil for a step. */
+	/** One of the two things you put in the anvil for a step, as it is shown. */
 	public record Part(Component label, List<Component> contents, boolean isItem) {
+	}
+
+	/**
+	 * Exactly what an item or book in the plan looks like, so it can be found in your inventory.
+	 *
+	 * @param enchantments  every enchantment on it, with levels
+	 * @param isItem        true for the item being enchanted, false for an enchanted book
+	 * @param startingThing true if you need to have it before you start (the item, or one of the single
+	 *                      books), false if an earlier step makes it
+	 */
+	public record Need(Map<Holder<Enchantment>, Integer> enchantments, boolean isItem, boolean startingThing) {
 	}
 
 	/** One anvil step. */
@@ -95,18 +106,20 @@ public final class AnvilPlanner {
 		public final Part first;
 		public final Part second;
 		public final int cost;
-		private final Map<Holder<Enchantment>, Integer> result;
-		private final boolean resultIsItem;
+		private final Need firstNeeds;
+		private final Need secondNeeds;
+		private final Need makes;
 		private int usedBy = -1;
 		private boolean done;
 
-		private Step(int number, Part first, Part second, int cost, Map<Holder<Enchantment>, Integer> result, boolean resultIsItem) {
+		private Step(int number, Part first, Part second, int cost, Need firstNeeds, Need secondNeeds, Need makes) {
 			this.number = number;
 			this.first = first;
 			this.second = second;
 			this.cost = cost;
-			this.result = result;
-			this.resultIsItem = resultIsItem;
+			this.firstNeeds = firstNeeds;
+			this.secondNeeds = secondNeeds;
+			this.makes = makes;
 		}
 
 		/** True once the result of this step (or something made from it) is in your inventory. */
@@ -114,13 +127,28 @@ public final class AnvilPlanner {
 			return done;
 		}
 
+		/** What goes in the anvil's first slot. */
+		public Need firstNeeds() {
+			return firstNeeds;
+		}
+
+		/** What goes in the anvil's second slot. */
+		public Need secondNeeds() {
+			return secondNeeds;
+		}
+
+		/** What comes out. */
+		public Need makes() {
+			return makes;
+		}
+
 		/** The enchantments on whatever this step makes. */
 		Map<Holder<Enchantment>, Integer> result() {
-			return result;
+			return makes.enchantments();
 		}
 
 		boolean makesItem() {
-			return resultIsItem;
+			return makes.isItem();
 		}
 	}
 
@@ -136,6 +164,11 @@ public final class AnvilPlanner {
 	// Which anvil we last looked at, and whether it had something to plan for in its first slot.
 	private AnvilMenu lastMenu;
 	private boolean hadItem;
+	// The work penalty of the book you have for each ticked enchantment. It is remembered after the book
+	// is used up, so doing a step doesn't change the plan.
+	private final Map<Holder<Enchantment>, Integer> bookPenalties = new HashMap<>();
+	// True while the anvil steps are being done automatically: the plan must not change under it.
+	private boolean locked;
 
 	private AnvilPlanner() {
 	}
@@ -191,6 +224,90 @@ public final class AnvilPlanner {
 		return creative;
 	}
 
+	/** Stops the plan from changing (used while the steps are done automatically). */
+	public void setLocked(boolean locked) {
+		this.locked = locked;
+	}
+
+	public boolean isLocked() {
+		return locked;
+	}
+
+	/** Levels the steps that aren't done yet will cost. */
+	public int remainingLevels() {
+		int levels = 0;
+		for (Step step : steps) {
+			if (!step.done) {
+				levels += step.cost;
+			}
+		}
+		return levels;
+	}
+
+	/**
+	 * The things the remaining steps need that you don't have: the item itself, or single-enchantment
+	 * books (at the ticked level).
+	 */
+	public List<Component> missingThings(AnvilMenu menu) {
+		List<ItemStack> owned = ownedStacks(menu);
+		List<Component> missing = new ArrayList<>();
+		for (Step step : steps) {
+			if (step.done) {
+				continue;
+			}
+			for (Need need : List.of(step.firstNeeds, step.secondNeeds)) {
+				if (need.startingThing() && owned.stream().noneMatch(stack -> matches(stack, need))) {
+					missing.add(need.isItem() ? item.getHoverName() : describeBooks(need));
+				}
+			}
+		}
+		return missing;
+	}
+
+	/** True if the stack is exactly the item or book described. */
+	public boolean matches(ItemStack stack, Need need) {
+		if (stack.isEmpty()) {
+			return false;
+		}
+		if (need.isItem()) {
+			return stack.getItem() == item.getItem() && !stack.has(DataComponents.STORED_ENCHANTMENTS)
+					&& sameEnchantments(stack.getEnchantments(), need.enchantments());
+		}
+		ItemEnchantments stored = stack.get(DataComponents.STORED_ENCHANTMENTS);
+		return stored != null && sameEnchantments(stored, need.enchantments());
+	}
+
+	/**
+	 * Finds the inventory slot (not one of the anvil's own slots) holding something that matches, picking
+	 * the one with the lowest work penalty. Returns -1 if there isn't one.
+	 */
+	public int findInInventory(AnvilMenu menu, Need need) {
+		int best = -1;
+		int bestPenalty = Integer.MAX_VALUE;
+		for (Slot slot : menu.slots) {
+			if (slot.index <= menu.getResultSlot() || !matches(slot.getItem(), need)) {
+				continue;
+			}
+			int penalty = slot.getItem().getOrDefault(DataComponents.REPAIR_COST, 0);
+			if (penalty < bestPenalty) {
+				best = slot.index;
+				bestPenalty = penalty;
+			}
+		}
+		return best;
+	}
+
+	private Component describeBooks(Need need) {
+		MutableComponent text = Component.empty();
+		for (Map.Entry<Holder<Enchantment>, Integer> entry : need.enchantments().entrySet()) {
+			if (!text.getSiblings().isEmpty()) {
+				text.append(", ");
+			}
+			text.append(enchantmentName(entry.getKey(), entry.getValue()));
+		}
+		return text;
+	}
+
 	/** Called every tick while the anvil is open, to follow what is in the anvil and your inventory. */
 	public void sync(AnvilMenu menu) {
 		Minecraft minecraft = Minecraft.getInstance();
@@ -203,13 +320,18 @@ public final class AnvilPlanner {
 			session = connection;
 			clear();
 		}
+		boolean newAnvil = menu != lastMenu;
+		lastMenu = menu;
+		if (locked) {
+			// Steps are being done automatically: just keep track of which ones are finished.
+			updateProgress(menu);
+			return;
+		}
 		if (creative != player.hasInfiniteMaterials()) {
 			creative = player.hasInfiniteMaterials();
 			recalculate();
 		}
 
-		boolean newAnvil = menu != lastMenu;
-		lastMenu = menu;
 		ItemStack input = menu.getSlot(AnvilMenu.INPUT_SLOT).getItem();
 		boolean hasItem = canPlanFor(input);
 		if (hasItem) {
@@ -228,10 +350,16 @@ public final class AnvilPlanner {
 		}
 		hadItem = hasItem;
 
+		if (bookPenaltiesChanged(ownedStacks(menu))) {
+			recalculate();
+		}
 		updateProgress(menu);
 	}
 
 	public void toggle(Choice choice) {
+		if (locked) {
+			return;
+		}
 		if (choice.status == Status.SELECTED) {
 			selected.remove(choice.enchantment);
 		} else if (choice.status == Status.AVAILABLE && selected.size() < AnvilOptimizer.MAX_BOOKS) {
@@ -248,7 +376,7 @@ public final class AnvilPlanner {
 
 	public void changeLevel(Choice choice, int change) {
 		Integer level = selected.get(choice.enchantment);
-		if (level == null) {
+		if (level == null || locked) {
 			return;
 		}
 		int newLevel = Math.clamp(level + change, choice.minLevel(), choice.maxLevel);
@@ -259,6 +387,9 @@ public final class AnvilPlanner {
 	}
 
 	public void clearSelection() {
+		if (locked) {
+			return;
+		}
 		selected.clear();
 		recalculate();
 	}
@@ -268,6 +399,9 @@ public final class AnvilPlanner {
 	 * at that book's level.
 	 */
 	public void selectBooksYouHave(AnvilMenu menu) {
+		if (locked) {
+			return;
+		}
 		boolean changed = false;
 		for (ItemStack stack : ownedStacks(menu)) {
 			ItemEnchantments stored = stack.get(DataComponents.STORED_ENCHANTMENTS);
@@ -302,6 +436,7 @@ public final class AnvilPlanner {
 		item = ItemStack.EMPTY;
 		choices = List.of();
 		selected.clear();
+		bookPenalties.clear();
 		plan = null;
 		steps = List.of();
 		currentStep = -1;
@@ -312,6 +447,7 @@ public final class AnvilPlanner {
 		item = newItem.copyWithCount(1);
 		choices = buildChoices(item);
 		selected.clear();
+		bookPenalties.clear();
 		for (Choice choice : choices) {
 			Integer level = previous.get(choice.enchantment);
 			if (level == null) {
@@ -405,8 +541,35 @@ public final class AnvilPlanner {
 		return null;
 	}
 
+	/**
+	 * Notes the work penalty of the book you have for each ticked enchantment. Returns true if any of them
+	 * changed. A book that isn't there (yet, or any more) keeps the penalty it had last time.
+	 */
+	private boolean bookPenaltiesChanged(List<ItemStack> owned) {
+		boolean changed = false;
+		for (Map.Entry<Holder<Enchantment>, Integer> entry : selected.entrySet()) {
+			Need book = new Need(Map.of(entry.getKey(), entry.getValue()), false, true);
+			int best = Integer.MAX_VALUE;
+			for (ItemStack stack : owned) {
+				if (matches(stack, book)) {
+					best = Math.min(best, stack.getOrDefault(DataComponents.REPAIR_COST, 0));
+				}
+			}
+			int known = bookPenalties.getOrDefault(entry.getKey(), 0);
+			if (best != Integer.MAX_VALUE && best != known) {
+				bookPenalties.put(entry.getKey(), best);
+				changed = true;
+			}
+		}
+		return changed;
+	}
+
 	/** Runs the order calculator again after the ticked enchantments (or levels) changed. */
 	private void recalculate() {
+		bookPenalties.keySet().retainAll(selected.keySet());
+		if (lastMenu != null) {
+			bookPenaltiesChanged(ownedStacks(lastMenu));
+		}
 		refreshStatuses();
 		plan = null;
 		steps = List.of();
@@ -427,7 +590,8 @@ public final class AnvilPlanner {
 			// item might already have the enchantment at the same level, which bumps it up by one.
 			int onItem = choice.levelOnItem == level ? Math.min(level + 1, choice.maxLevel) : Math.max(level, choice.levelOnItem);
 			picked.add(choice);
-			books.add(new AnvilOptimizer.Book(level * choice.bookCostPerLevel(), onItem * choice.bookCostPerLevel()));
+			books.add(new AnvilOptimizer.Book(level * choice.bookCostPerLevel(), onItem * choice.bookCostPerLevel(),
+					bookPenalties.getOrDefault(choice.enchantment, 0)));
 		}
 
 		int maxStep = creative ? Integer.MAX_VALUE : AnvilOptimizer.TOO_EXPENSIVE - 1;
@@ -446,19 +610,8 @@ public final class AnvilPlanner {
 		List<Step> result = new ArrayList<>();
 		for (int i = 0; i < plan.steps().size(); i++) {
 			AnvilOptimizer.Node node = plan.steps().get(i);
-			Map<Holder<Enchantment>, Integer> enchantments = new HashMap<>();
-			if (node.isItem()) {
-				for (var entry : item.getEnchantments().entrySet()) {
-					enchantments.put(entry.getKey(), entry.getIntValue());
-				}
-			}
-			for (int book = 0; book < picked.size(); book++) {
-				if ((node.books() & (1 << book)) != 0) {
-					enchantments.put(picked.get(book).enchantment, selected.get(picked.get(book).enchantment));
-				}
-			}
 			result.add(new Step(i + 1, describe(node.left(), stepIndex, picked), describe(node.right(), stepIndex, picked),
-					node.stepCost(), enchantments, node.isItem()));
+					node.stepCost(), need(node.left(), picked), need(node.right(), picked), need(node, picked)));
 		}
 		for (int i = 0; i < plan.steps().size(); i++) {
 			AnvilOptimizer.Node node = plan.steps().get(i);
@@ -470,6 +623,22 @@ public final class AnvilPlanner {
 			}
 		}
 		return List.copyOf(result);
+	}
+
+	/** The enchantments on an item or book in the plan. */
+	private Need need(AnvilOptimizer.Node node, List<Choice> picked) {
+		Map<Holder<Enchantment>, Integer> enchantments = new HashMap<>();
+		if (node.isItem()) {
+			for (var entry : item.getEnchantments().entrySet()) {
+				enchantments.put(entry.getKey(), entry.getIntValue());
+			}
+		}
+		for (int book = 0; book < picked.size(); book++) {
+			if ((node.books() & (1 << book)) != 0) {
+				enchantments.put(picked.get(book).enchantment, selected.get(picked.get(book).enchantment));
+			}
+		}
+		return new Need(Map.copyOf(enchantments), node.isItem(), !node.isStep());
 	}
 
 	private Part describe(AnvilOptimizer.Node node, Map<AnvilOptimizer.Node, Integer> stepIndex, List<Choice> picked) {
@@ -500,7 +669,7 @@ public final class AnvilPlanner {
 		for (int i = steps.size() - 1; i >= 0; i--) {
 			Step step = steps.get(i);
 			// A step also counts as done once the thing it made has been used up in a later step.
-			step.done = (step.usedBy >= 0 && steps.get(step.usedBy).done) || owned.stream().anyMatch(stack -> isResultOf(stack, step));
+			step.done = (step.usedBy >= 0 && steps.get(step.usedBy).done) || owned.stream().anyMatch(stack -> matches(stack, step.makes));
 		}
 		for (int i = 0; i < steps.size(); i++) {
 			if (!steps.get(i).done) {
@@ -508,15 +677,6 @@ public final class AnvilPlanner {
 				return;
 			}
 		}
-	}
-
-	private boolean isResultOf(ItemStack stack, Step step) {
-		if (step.resultIsItem) {
-			return !stack.isEmpty() && stack.getItem() == item.getItem() && !stack.has(DataComponents.STORED_ENCHANTMENTS)
-					&& sameEnchantments(stack.getEnchantments(), step.result);
-		}
-		ItemEnchantments stored = stack.get(DataComponents.STORED_ENCHANTMENTS);
-		return stored != null && sameEnchantments(stored, step.result);
 	}
 
 	/** True if the stack is the planned item before or after one of the steps. */
@@ -529,7 +689,7 @@ public final class AnvilPlanner {
 			return true;
 		}
 		for (Step step : steps) {
-			if (step.resultIsItem && sameEnchantments(stack.getEnchantments(), step.result)) {
+			if (step.makes.isItem() && sameEnchantments(stack.getEnchantments(), step.makes.enchantments())) {
 				return true;
 			}
 		}

@@ -2,16 +2,20 @@ package com.enchantorder.client;
 
 import com.enchantorder.client.AnvilPlanner.Part;
 import com.enchantorder.client.AnvilPlanner.Step;
+import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.FormattedCharSequence;
+import net.minecraft.world.inventory.AnvilMenu;
 
 /**
  * The panel on the right of the anvil: the cheapest order to do the anvil steps in. The next step
- * to do is highlighted, and steps you've already done get a tick.
+ * to do is highlighted, and steps you've already done get a tick. With "Auto" ticked, an Apply button
+ * at the bottom does the steps for you.
  */
 final class OrderPanel extends PanelWidget {
 	private static final int STEP = 24;
@@ -24,16 +28,21 @@ final class OrderPanel extends PanelWidget {
 	private static final int AFFORDABLE = 0xFF80FF20;
 	private static final int TOO_HIGH = 0xFFFF6060;
 	private static final int ALL_DONE = 0xFF1E7A1E;
+	private static final int GOOD_NEWS = 0xFF55FF55;
+	private static final int BOX = 9;
 
+	private final AnvilMenu menu;
+	private final AutoEnchanter auto = AutoEnchanter.INSTANCE;
 	private int shownCurrentStep = -2;
 
-	OrderPanel(int x, int y, int width, int height) {
+	OrderPanel(int x, int y, int width, int height, AnvilMenu menu) {
 		super(x, y, width, height, Component.translatable("enchantorder.order.title"));
+		this.menu = menu;
 	}
 
 	@Override
 	int contentHeight() {
-		return planner.steps().size() * STEP + 2;
+		return planner.steps().size() * STEP + 2 + messageHeight();
 	}
 
 	@Override
@@ -41,12 +50,51 @@ final class OrderPanel extends PanelWidget {
 		return STEP;
 	}
 
+	// The "Auto" tick box, in the top right corner.
+	int autoBoxX() {
+		return getRight() - 7 - font.width(Component.translatable("enchantorder.auto.checkbox")) - BOX - 3;
+	}
+
+	int autoBoxY() {
+		return getY() + 7;
+	}
+
+	private int autoWidth() {
+		return getRight() - 5 - autoBoxX();
+	}
+
+	// The Apply / Stop button along the bottom, shown when "Auto" is ticked and there is something to do.
+	boolean showsButton() {
+		return EnchantOrderSettings.autoApply() && planner.currentStep() >= 0;
+	}
+
+	int buttonX() {
+		return listLeft();
+	}
+
+	int buttonY() {
+		return getBottom() - FOOTER + 3;
+	}
+
+	int buttonWidth() {
+		return listRight() - listLeft();
+	}
+
 	@Override
 	void extractPanel(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
-		graphics.text(font, fit(getMessage().getString(), getWidth() - 14), getX() + 7, getY() + 8, LABEL, false);
+		// Header: the title, and the "Auto" tick box.
+		int boxX = autoBoxX();
+		graphics.text(font, fit(getMessage().getString(), boxX - 4 - (getX() + 7)), getX() + 7, getY() + 8, LABEL, false);
+		boolean autoHovered = isInside(mouseX, mouseY, boxX - 1, autoBoxY() - 1, autoWidth() + 2, BOX + 2);
+		drawTickBox(graphics, boxX, autoBoxY(), EnchantOrderSettings.autoApply(), autoHovered);
+		graphics.text(font, Component.translatable("enchantorder.auto.checkbox"), boxX + BOX + 3, autoBoxY() + 1, LABEL, false);
+		if (autoHovered) {
+			graphics.requestCursor(CursorTypes.POINTING_HAND);
+		}
 
 		List<Step> steps = planner.steps();
 		int width = rowWidth();
+		Step hovered = null;
 		if (!planner.hasSelection()) {
 			drawWrapped(graphics, Component.translatable("enchantorder.order.empty"), listLeft() + 3, listTop() + 4, width - 6, TEXT_DIM);
 		} else if (planner.isTooExpensive()) {
@@ -55,7 +103,6 @@ final class OrderPanel extends PanelWidget {
 			drawWrapped(graphics, Component.translatable("enchantorder.order.too_expensive"), listLeft() + 3, y, width - 6, TEXT_DIM);
 		} else {
 			keepCurrentStepInView();
-			Step hovered = null;
 			graphics.enableScissor(listLeft(), listTop(), listRight(), listBottom());
 			for (int i = 0; i < steps.size(); i++) {
 				int stepY = listTop() + 1 + i * STEP - scroll;
@@ -68,14 +115,19 @@ final class OrderPanel extends PanelWidget {
 				}
 				drawStep(graphics, steps.get(i), listLeft(), stepY, width, i == planner.currentStep(), isHovered);
 			}
-			graphics.disableScissor();
-			if (hovered != null) {
-				tooltip(graphics, stepTooltip(hovered), mouseX, mouseY);
+			// What the automatic mode last said (finished, or why it stopped), under the steps.
+			Component message = auto.message();
+			if (!message.getString().isEmpty()) {
+				int color = auto.isRunning() ? TEXT_DIM : auto.messageIsProblem() ? TOO_HIGH : GOOD_NEWS;
+				drawWrapped(graphics, message, listLeft() + 3, listTop() + 4 + steps.size() * STEP - scroll, width - 6, color);
 			}
+			graphics.disableScissor();
 		}
 
-		// Footer: the total, or "All done!" once every step has been done.
-		if (!steps.isEmpty()) {
+		// Footer: the Apply / Stop button, or the total.
+		if (showsButton()) {
+			drawAutoButton(graphics, mouseX, mouseY);
+		} else if (!steps.isEmpty()) {
 			int footerY = getBottom() - FOOTER + 7;
 			boolean allDone = planner.currentStep() < 0;
 			Component footer = allDone
@@ -88,6 +140,58 @@ final class OrderPanel extends PanelWidget {
 						Component.translatable("enchantorder.tooltip.work_penalty_after", planner.finalWorkPenalty())), mouseX, mouseY);
 			}
 		}
+
+		// Tooltips (only one shows at a time).
+		if (autoHovered) {
+			tooltip(graphics, List.of(Component.translatable("enchantorder.auto.checkbox.tooltip")), mouseX, mouseY);
+		} else if (hovered != null) {
+			tooltip(graphics, stepTooltip(hovered), mouseX, mouseY);
+		}
+	}
+
+	/** A small sunken box with a green tick inside when it's on. */
+	private static void drawTickBox(GuiGraphicsExtractor graphics, int x, int y, boolean ticked, boolean hovered) {
+		graphics.fill(x, y, x + BOX, y + BOX, 0xFF373737);
+		graphics.fill(x + 1, y + 1, x + BOX, y + BOX, 0xFFFFFFFF);
+		graphics.fill(x + 1, y + 1, x + BOX - 1, y + BOX - 1, hovered ? 0xFF9C9C9C : 0xFF8B8B8B);
+		if (ticked) {
+			graphics.fill(x + 2, y + 2, x + BOX - 2, y + BOX - 2, 0xFF2EB82E);
+		}
+	}
+
+	private void drawAutoButton(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
+		Component label;
+		List<Component> tooltip;
+		boolean active;
+		if (auto.isRunning()) {
+			label = Component.translatable("enchantorder.auto.stop", planner.currentStep() + 1, planner.steps().size());
+			tooltip = List.of(Component.translatable("enchantorder.auto.stop.tooltip"));
+			active = true;
+		} else {
+			List<AutoEnchanter.Problem> problems = auto.problems(menu);
+			if (problems.isEmpty()) {
+				label = Component.translatable("enchantorder.auto.apply", planner.remainingLevels());
+				tooltip = List.of(Component.translatable("enchantorder.auto.apply.tooltip", planner.remainingLevels()));
+				active = true;
+			} else {
+				label = problems.getFirst().brief();
+				tooltip = problems.stream().map(AutoEnchanter.Problem::detail).toList();
+				active = false;
+			}
+		}
+		boolean hovered = drawButton(graphics, buttonX(), buttonY(), buttonWidth(), 16, label, active, mouseX, mouseY);
+		if (hovered) {
+			tooltip(graphics, tooltip, mouseX, mouseY);
+		}
+	}
+
+	private int messageHeight() {
+		Component message = auto.message();
+		if (message.getString().isEmpty() || planner.steps().isEmpty()) {
+			return 0;
+		}
+		List<FormattedCharSequence> lines = font.split(message, Math.max(10, rowWidth() - 6));
+		return lines.size() * (font.lineHeight + 1) + 6;
 	}
 
 	private void drawStep(GuiGraphicsExtractor graphics, Step step, int x, int y, int width, boolean current, boolean hovered) {
@@ -99,7 +203,7 @@ final class OrderPanel extends PanelWidget {
 		}
 		boolean done = step.isDone();
 
-		String number = done ? "\u2714" : step.number + ".";
+		String number = done ? "✔" : step.number + ".";
 		graphics.text(font, number, x + 4, y + 3, done ? DONE_TICK : current ? 0xFFFFFF55 : TEXT_DIM, true);
 
 		// Leave room for the widest step number, so the names line up.
@@ -173,6 +277,22 @@ final class OrderPanel extends PanelWidget {
 
 	@Override
 	void click(double mouseX, double mouseY, int button) {
-		// Nothing to click here; the panel only catches clicks so the anvil doesn't get them.
+		if (button != 0) {
+			return;
+		}
+		if (isInside(mouseX, mouseY, autoBoxX() - 1, autoBoxY() - 1, autoWidth() + 2, BOX + 2)) {
+			playClickSound();
+			EnchantOrderSettings.setAutoApply(!EnchantOrderSettings.autoApply());
+			return;
+		}
+		if (showsButton() && isInside(mouseX, mouseY, buttonX(), buttonY(), buttonWidth(), 16)) {
+			if (auto.isRunning()) {
+				playClickSound();
+				auto.stop(Component.translatable("enchantorder.auto.stopped"), false);
+			} else if (auto.problems(menu).isEmpty()) {
+				playClickSound();
+				auto.start(menu);
+			}
+		}
 	}
 }

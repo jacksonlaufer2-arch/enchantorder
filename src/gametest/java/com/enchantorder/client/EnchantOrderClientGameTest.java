@@ -65,13 +65,7 @@ public class EnchantOrderClientGameTest implements FabricClientGameTest {
 
 			// Put down an anvil and open it like a player would.
 			BlockPos anvilPos = context.computeOnClient(client -> BlockPos.containing(client.player.position()).east().east());
-			singleplayer.getServer().runCommand("setblock %d %d %d minecraft:anvil".formatted(anvilPos.getX(), anvilPos.getY(), anvilPos.getZ()));
-			context.waitFor(client -> client.level.getBlockState(anvilPos).is(Blocks.ANVIL));
-			context.getInput().lookAt(anvilPos);
-			context.waitTick();
-			context.getInput().pressKey(options -> options.keyUse);
-			context.waitForScreen(AnvilScreen.class);
-			context.waitTicks(5);
+			openAnvil(context, singleplayer, anvilPos);
 			context.takeScreenshot("0-anvil-open");
 			check(context, client -> !AnvilPlanner.INSTANCE.isActive(), "the panels should stay hidden until an item goes in");
 
@@ -157,8 +151,81 @@ public class EnchantOrderClientGameTest implements FabricClientGameTest {
 					"My books should tick just Mending");
 			context.takeScreenshot("6-my-books");
 
+			// Automatic mode. Swap the inventory for a new sword and a book for each of the seven enchantments.
+			singleplayer.getServer().runOnServer(server -> {
+				ServerPlayer player = singleplayer.getConnection().getServerPlayer();
+				Registry<Enchantment> enchantments = server.registryAccess().lookupOrThrow(Registries.ENCHANTMENT);
+				player.getInventory().clearContent();
+				player.getInventory().setItem(0, new ItemStack(Items.DIAMOND_SWORD));
+				int slot = 9;
+				for (ResourceKey<Enchantment> key : SWORD_ENCHANTMENTS) {
+					Holder<Enchantment> enchantment = enchantments.getOrThrow(key);
+					player.getInventory().setItem(slot++, EnchantmentHelper.createBook(new EnchantmentInstance(enchantment, enchantment.value().getMaxLevel())));
+				}
+			});
+			context.waitFor(client -> anvil(client).getMenu().getSlot(3 + 27).getItem().getItem() == Items.DIAMOND_SWORD);
+			clickAt(context, bigPicker.clearX() + 5, bigPicker.buttonY() + 5);
+			clickAt(context, bigPicker.myBooksX() + 5, bigPicker.buttonY() + 5);
+			check(context, client -> AnvilPlanner.INSTANCE.steps().size() == 7 && AnvilPlanner.INSTANCE.totalLevels() == 49,
+					"My books should tick all seven books");
+
+			// Tick "Auto". With only 30 levels, Apply must not be allowed (the plan costs 49).
+			OrderPanel bigOrder = context.computeOnClient(client -> panel(client, OrderPanel.class));
+			clickAt(context, bigOrder.autoBoxX() + 4, bigOrder.autoBoxY() + 4);
+			check(context, client -> EnchantOrderSettings.autoApply(), "clicking the box should tick Auto");
+			check(context, client -> client.player.experienceLevel == 30, "the player should have 30 levels");
+			check(context, client -> !AutoEnchanter.INSTANCE.problems(anvil(client).getMenu()).isEmpty(), "Apply should need more levels");
+			clickAt(context, bigOrder.buttonX() + 10, bigOrder.buttonY() + 8);
+			context.waitTicks(5);
+			check(context, client -> !AutoEnchanter.INSTANCE.isRunning(), "Apply shouldn't start without enough levels");
+			context.takeScreenshot("7-auto-needs-levels");
+
+			// With 60 levels it can go. Click Apply and let it do every step.
+			singleplayer.getServer().runOnServer(server -> singleplayer.getConnection().getServerPlayer().giveExperienceLevels(30));
+			context.waitFor(client -> client.player.experienceLevel == 60);
+			check(context, client -> AutoEnchanter.INSTANCE.problems(anvil(client).getMenu()).isEmpty(), "Apply should be ready");
+			context.takeScreenshot("8-auto-ready");
+			for (int attempt = 0; attempt < 4 && !allStepsDone(context); attempt++) {
+				if (!context.computeOnClient(client -> client.gui.screen() instanceof AnvilScreen)) {
+					// The anvil wore out and broke (12% chance per use): put down a new one and carry on.
+					openAnvil(context, singleplayer, anvilPos);
+				}
+				OrderPanel order2 = context.computeOnClient(client -> panel(client, OrderPanel.class));
+				clickAt(context, order2.buttonX() + 10, order2.buttonY() + 8);
+				check(context, client -> AutoEnchanter.INSTANCE.isRunning(), "Apply should start");
+				if (attempt == 0) {
+					context.waitTicks(20);
+					context.takeScreenshot("9-auto-working");
+				}
+				context.waitFor(client -> !AutoEnchanter.INSTANCE.isRunning(), 1200);
+			}
+			check(context, client -> allStepsDoneOnClient(), "every step should be done: " + context.computeOnClient(client -> AutoEnchanter.INSTANCE.message().getString()));
+			check(context, client -> client.player.experienceLevel == 60 - 49,
+					"the steps should cost exactly 49 levels, the player has " + context.computeOnClient(client -> client.player.experienceLevel) + " left");
+			context.waitTicks(2);
+			context.takeScreenshot("10-auto-done");
+
 			context.setScreen(() -> null);
 		}
+	}
+
+	/** Puts an anvil down next to the player and opens it by pressing "use" on it. */
+	private static void openAnvil(ClientGameTestContext context, TestSingleplayerContext singleplayer, BlockPos anvilPos) {
+		singleplayer.getServer().runCommand("setblock %d %d %d minecraft:anvil".formatted(anvilPos.getX(), anvilPos.getY(), anvilPos.getZ()));
+		context.waitFor(client -> client.level.getBlockState(anvilPos).is(Blocks.ANVIL));
+		context.getInput().lookAt(anvilPos);
+		context.waitTick();
+		context.getInput().pressKey(options -> options.keyUse);
+		context.waitForScreen(AnvilScreen.class);
+		context.waitTicks(5);
+	}
+
+	private static boolean allStepsDone(ClientGameTestContext context) {
+		return context.computeOnClient(client -> allStepsDoneOnClient());
+	}
+
+	private static boolean allStepsDoneOnClient() {
+		return !AnvilPlanner.INSTANCE.steps().isEmpty() && AnvilPlanner.INSTANCE.currentStep() < 0;
 	}
 
 	private static AnvilScreen anvil(Minecraft client) {

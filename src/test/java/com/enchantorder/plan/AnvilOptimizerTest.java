@@ -50,6 +50,14 @@ class AnvilOptimizerTest {
 	}
 
 	@Test
+	void bookWorkPenaltyIsCharged() {
+		// A Sharpness V book that was made by combining two IV books has a penalty of 1.
+		Plan plan = AnvilOptimizer.solve(0, List.of(new Book(5, 5, 1)), SURVIVAL);
+		assertEquals(6, plan.totalLevels());
+		assertEquals(3, plan.result().workPenalty());
+	}
+
+	@Test
 	void realExamples() {
 		// Diamond sword: Sharpness V, Unbreaking III, Mending, Looting III, Fire Aspect II, Sweeping Edge III, Knockback II.
 		assertEquals(49, AnvilOptimizer.solve(0, books(5, 3, 2, 6, 4, 6, 2), SURVIVAL).totalLevels());
@@ -92,14 +100,14 @@ class AnvilOptimizerTest {
 			List<Book> books = new ArrayList<>();
 			for (int i = 0; i < count; i++) {
 				int onBook = multipliers[random.nextInt(multipliers.length)] * (1 + random.nextInt(5));
-				books.add(new Book(onBook, random.nextInt(5) == 0 ? onBook + 1 : onBook));
+				books.add(new Book(onBook, random.nextInt(5) == 0 ? onBook + 1 : onBook, random.nextInt(6) == 0 ? 1 + random.nextInt(3) : 0));
 			}
 
 			BruteForce brute = new BruteForce(books, maxStep);
 			List<Piece> start = new ArrayList<>();
 			start.add(new Piece(true, 0, itemPenalty));
 			for (int i = 0; i < count; i++) {
-				start.add(new Piece(false, 1 << i, 0));
+				start.add(new Piece(false, 1 << i, books.get(i).workPenalty()));
 			}
 			brute.search(start, 0, 0);
 

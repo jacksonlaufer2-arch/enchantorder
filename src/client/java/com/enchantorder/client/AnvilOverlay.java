@@ -6,6 +6,7 @@ import net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
 import net.minecraft.client.gui.screens.inventory.AnvilScreen;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.inventory.AnvilMenu;
 
 /** Puts the two panels next to an open anvil and passes mouse clicks and scrolling to them. */
@@ -32,7 +33,7 @@ public final class AnvilOverlay {
 		int top = Math.max(GAP, anvilTop + (ANVIL_HEIGHT - height) / 2);
 
 		PickerPanel picker = new PickerPanel(anvilLeft - GAP - width, top, width, height, menu);
-		OrderPanel order = new OrderPanel(anvilLeft + ANVIL_WIDTH + GAP, top, width, height);
+		OrderPanel order = new OrderPanel(anvilLeft + ANVIL_WIDTH + GAP, top, width, height, menu);
 		panels = List.of(picker, order);
 		Screens.getWidgets(screen).add(picker);
 		Screens.getWidgets(screen).add(order);
@@ -46,7 +47,11 @@ public final class AnvilOverlay {
 			return; // Already attached since the screen was last set up.
 		}
 		AnvilOverlay overlay = new AnvilOverlay(screen);
-		ScreenEvents.afterTick(screen).register(s -> AnvilPlanner.INSTANCE.sync(overlay.menu));
+		ScreenEvents.afterTick(screen).register(s -> {
+			AnvilPlanner.INSTANCE.sync(overlay.menu);
+			AutoEnchanter.INSTANCE.tick(overlay.menu);
+		});
+		ScreenEvents.remove(screen).register(s -> AutoEnchanter.INSTANCE.stop(Component.translatable("enchantorder.auto.closed"), true));
 		ScreenMouseEvents.allowMouseClick(screen).register((s, event) -> overlay.allowClick(event));
 		ScreenMouseEvents.allowMouseRelease(screen).register((s, event) -> overlay.allowRelease());
 		ScreenMouseEvents.allowMouseScroll(screen).register((s, mouseX, mouseY, scrollX, scrollY) -> overlay.allowScroll(mouseX, mouseY, scrollY));
@@ -63,6 +68,12 @@ public final class AnvilOverlay {
 
 	/** Returns false (meaning "the anvil shouldn't see this click") when the click was on a panel. */
 	private boolean allowClick(MouseButtonEvent event) {
+		if (AutoEnchanter.INSTANCE.isRunning()) {
+			// While the steps are done for you, any click stops it (and does nothing else).
+			AutoEnchanter.INSTANCE.stop(Component.translatable("enchantorder.auto.stopped"), false);
+			pressedOnPanel = true;
+			return false;
+		}
 		PanelWidget panel = panelAt(event.x(), event.y());
 		if (panel == null) {
 			return true;

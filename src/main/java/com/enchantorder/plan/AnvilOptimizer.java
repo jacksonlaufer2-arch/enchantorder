@@ -30,14 +30,20 @@ public final class AnvilOptimizer {
 	}
 
 	/**
-	 * One enchanted book (with a single enchantment and no work penalty) that should end up on the item.
+	 * One enchanted book (with a single enchantment) that should end up on the item.
 	 *
-	 * @param costOnBook levels this book adds to a step when it goes in the right slot on top of another book
-	 * @param costOnItem levels this book adds to a step when its enchantment lands on the item. This is
-	 *                   usually the same as {@code costOnBook}, but differs when the item already has the
-	 *                   enchantment at a lower level.
+	 * @param costOnBook  levels this book adds to a step when it goes in the right slot on top of another book
+	 * @param costOnItem  levels this book adds to a step when its enchantment lands on the item. This is
+	 *                    usually the same as {@code costOnBook}, but differs when the item already has the
+	 *                    enchantment at a lower level.
+	 * @param workPenalty the book's own prior work penalty: 0 for a fresh book, more if it has been
+	 *                    through an anvil before
 	 */
-	public record Book(int costOnBook, int costOnItem) {
+	public record Book(int costOnBook, int costOnItem, int workPenalty) {
+		/** A fresh book, straight from an enchanting table, a librarian or a chest. */
+		public Book(int costOnBook, int costOnItem) {
+			this(costOnBook, costOnItem, 0);
+		}
 	}
 
 	/**
@@ -127,7 +133,7 @@ public final class AnvilOptimizer {
 		for (int mask = 1; mask <= all; mask++) {
 			if (Integer.bitCount(mask) == 1) {
 				int index = Integer.numberOfTrailingZeros(mask);
-				bookOnly[mask] = List.of(new Node(index, null, null, 0, 0, 0, 0, mask, false));
+				bookOnly[mask] = List.of(new Node(index, null, null, 0, Math.max(0, books.get(index).workPenalty()), 0, 0, mask, false));
 			} else {
 				List<Node> options = new ArrayList<>();
 				int lowestBit = mask & -mask;
