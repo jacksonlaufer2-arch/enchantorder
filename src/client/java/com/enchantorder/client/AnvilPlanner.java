@@ -339,8 +339,9 @@ public final class AnvilPlanner {
 	/** True if you have what the step makes. */
 	private boolean isMade(Step step, List<ItemStack> owned) {
 		if (step.makes.isItem()) {
-			long count = countMade(step, owned);
-			// Some of the copies you had before this run may have gone since.
+			// While enchanting another copy the same way, every copy that looks right counts (this one may get
+			// renamed or used), minus the ones you had already. Some of those may have gone since.
+			long count = alreadyHad.containsKey(step.makes) ? owned.stream().filter(stack -> looksLike(stack, step.makes)).count() : countMade(step, owned);
 			alreadyHad.computeIfPresent(step.makes, (need, had) -> (int) Math.min(had, count));
 			return count > alreadyHad.getOrDefault(step.makes, 0);
 		}
@@ -349,20 +350,20 @@ public final class AnvilPlanner {
 		}
 		// A book with the same enchantments but another work penalty (made with another copy of a book)
 		// counts too, but only once something this step itself uses up is gone: otherwise it was there all
-		// along. That is one of its own single books, or, if it combines two books made earlier, both of those.
+		// along. That is one of its own single books, or the books from earlier steps it combines (once a
+		// single book inside them has been used up too).
 		if (owned.stream().noneMatch(stack -> looksLike(stack, step.makes))) {
 			return false;
 		}
 		int index = step.number - 1;
-		boolean usesSingles = bookSteps.containsValue(index);
-		if (usesSingles) {
-			return bookSteps.entrySet().stream().anyMatch(entry -> entry.getValue() == index
-					&& owned.stream().noneMatch(stack -> matches(stack, singleBooks.get(entry.getKey()))));
-		}
+		boolean ownSingleGone = bookSteps.entrySet().stream().anyMatch(entry -> entry.getValue() == index
+				&& owned.stream().noneMatch(stack -> matches(stack, singleBooks.get(entry.getKey()))));
+		boolean combinesMadeBooks = steps.stream().anyMatch(earlier -> earlier.usedBy == index);
+		boolean madeBooksGone = steps.stream().filter(earlier -> earlier.usedBy == index)
+				.allMatch(earlier -> owned.stream().noneMatch(stack -> looksLike(stack, earlier.makes)));
 		boolean singlesUsed = step.makes.enchantments().keySet().stream()
 				.anyMatch(enchantment -> owned.stream().noneMatch(stack -> matches(stack, singleBooks.get(enchantment))));
-		return singlesUsed && steps.stream().filter(earlier -> earlier.usedBy == index)
-				.allMatch(earlier -> owned.stream().noneMatch(stack -> looksLike(stack, earlier.makes)));
+		return ownSingleGone || (combinesMadeBooks && madeBooksGone && singlesUsed);
 	}
 
 	/**
@@ -372,8 +373,10 @@ public final class AnvilPlanner {
 	 */
 	private long countMade(Step step, List<ItemStack> owned) {
 		if (owned.stream().anyMatch(stack -> sameApartFromEnchanting(stack, item))) {
-			// Remember how many other copies look like this already, so they aren't counted later on.
-			othersHad.put(step.makes, (int) owned.stream().filter(stack -> looksLike(stack, step.makes) && !sameApartFromEnchanting(stack, item)).count());
+			// Remember how many other copies look like this before it's made, so they aren't counted later on.
+			if (!step.done) {
+				othersHad.put(step.makes, (int) owned.stream().filter(stack -> looksLike(stack, step.makes) && !sameApartFromEnchanting(stack, item)).count());
+			}
 			return owned.stream().filter(stack -> looksLike(stack, step.makes) && sameApartFromEnchanting(stack, item)).count();
 		}
 		return Math.max(0, owned.stream().filter(stack -> looksLike(stack, step.makes)).count() - othersHad.getOrDefault(step.makes, 0));
@@ -864,14 +867,17 @@ public final class AnvilPlanner {
 		if (allDone && fresh != null && matches(menu.getSlot(AnvilMenu.INPUT_SLOT).getItem(), fresh)) {
 			// Everything is done, but a fresh copy of the item is in the anvil: you're enchanting another one
 			// the same way. The finished ones you already have don't count for this one.
+			othersHad.clear();
 			for (Step step : steps) {
 				if (step.makes.isItem()) {
-					alreadyHad.put(step.makes, (int) countMade(step, owned));
+					alreadyHad.put(step.makes, (int) owned.stream().filter(stack -> looksLike(stack, step.makes)).count());
 				}
 			}
 			markDone(owned);
 		} else if (allDone) {
+			// Finished: nothing needs leaving out any more.
 			alreadyHad.clear();
+			othersHad.clear();
 		}
 		usedBooks.clear();
 		bookSteps.forEach((enchantment, step) -> {
