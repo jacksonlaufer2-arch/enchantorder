@@ -28,7 +28,7 @@ The order puts all the book-on-book steps first, so once the item goes in the fi
 
 Tick the **Auto** box in the top right corner of the order panel. An **Apply** button shows up under the steps.
 
-![Auto mode halfway through: two steps done, step 3 in progress](docs/auto.png)
+![Auto mode at work: step 1 done, step 2 in progress](docs/auto.png)
 
 1. Put the item in the anvil and tick your enchantments (**My books** is the quickest way).
 2. Click **Apply**. The mod shift-clicks the books and the item into the anvil and takes each result out, step by step, just like you would.
