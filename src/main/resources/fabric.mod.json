@@ -1,0 +1,22 @@
+{
+	"schemaVersion": 1,
+	"id": "enchantorder",
+	"version": "${version}",
+	"name": "Enchant Order",
+	"description": "Shows the cheapest order to put enchanted books on an item, right next to the anvil.",
+	"authors": [
+		"jacksonlaufer2-arch"
+	],
+	"environment": "client",
+	"entrypoints": {
+		"client": [
+			"com.enchantorder.EnchantOrderClient"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.0",
+		"minecraft": "~26.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
