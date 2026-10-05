@@ -119,7 +119,7 @@ final class OrderPanel extends PanelWidget {
 			Component message = auto.message();
 			if (!message.getString().isEmpty()) {
 				int color = auto.isRunning() ? TEXT_DIM : auto.messageIsProblem() ? TOO_HIGH : GOOD_NEWS;
-				drawWrapped(graphics, message, listLeft() + 3, listTop() + 4 + steps.size() * STEP - scroll, width - 6, color);
+				drawWrapped(graphics, message, listLeft() + 3, listTop() + 4 + steps.size() * STEP - scroll, messageWidth(), color);
 			}
 			graphics.disableScissor();
 		}
@@ -185,12 +185,18 @@ final class OrderPanel extends PanelWidget {
 		}
 	}
 
+	// The message is part of what scrolls, so its size can't depend on whether there is a scroll bar
+	// (that would go round in circles). Always leave room for one.
+	private int messageWidth() {
+		return Math.max(10, listRight() - listLeft() - SCROLLBAR - 1 - 6);
+	}
+
 	private int messageHeight() {
 		Component message = auto.message();
 		if (message.getString().isEmpty() || planner.steps().isEmpty()) {
 			return 0;
 		}
-		List<FormattedCharSequence> lines = font.split(message, Math.max(10, rowWidth() - 6));
+		List<FormattedCharSequence> lines = font.split(message, messageWidth());
 		return lines.size() * (font.lineHeight + 1) + 6;
 	}
 

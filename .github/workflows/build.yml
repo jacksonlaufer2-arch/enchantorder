@@ -54,3 +54,11 @@ jobs:
         with:
           name: Screenshots
           path: build/run/clientGameTest/screenshots/
+      - name: print screenshots (temporary)
+        if: always()
+        run: |
+          for f in $(find . -name "*.png" -path "*screenshots*" -not -path "./.gradle/*" | sort); do
+            echo "=====BEGIN $f"
+            base64 -w 0 "$f"; echo
+            echo "=====END $f"
+          done
