@@ -1,0 +1,15 @@
+{
+	"schemaVersion": 1,
+	"id": "enchantorder-test",
+	"version": "1.0.0",
+	"name": "Enchant Order tests",
+	"environment": "client",
+	"entrypoints": {
+		"fabric-client-gametest": [
+			"com.enchantorder.client.EnchantOrderClientGameTest"
+		]
+	},
+	"depends": {
+		"enchantorder": "*"
+	}
+}

@@ -28,3 +28,38 @@ jobs:
         with:
           name: Artifacts
           path: build/libs/
+
+  # Starts the real game in a virtual screen, opens an anvil and clicks through the panels
+  # (see src/gametest). Screenshots of each step are saved as the "Screenshots" artifact.
+  game-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v6
+      - name: setup jdk
+        uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: 'microsoft'
+      - name: make gradle wrapper executable
+        run: chmod +x ./gradlew
+      - name: install virtual screen
+        run: sudo apt-get update -q && sudo apt-get install -y -q xvfb
+      - name: run game test
+        run: xvfb-run -a -s "-screen 0 1920x1080x24" ./gradlew runClientGameTest
+      - name: capture screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Screenshots
+          path: build/run/clientGameTest/screenshots/
+      - name: print screenshots (temporary)
+        if: always()
+        run: |
+          find . -name "*.png" -path "*screenshots*" -not -path "./.gradle/*" | sort
+          for f in $(find . -name "*.png" -path "*screenshots*" -not -path "./.gradle/*" | sort); do
+            echo "=====BEGIN $f"
+            convert "$f" -colors 255 PNG8:/tmp/small.png
+            base64 -w 0 /tmp/small.png; echo
+            echo "=====END $f"
+          done

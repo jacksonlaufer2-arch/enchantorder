@@ -113,6 +113,15 @@ public final class AnvilPlanner {
 		public boolean isDone() {
 			return done;
 		}
+
+		/** The enchantments on whatever this step makes. */
+		Map<Holder<Enchantment>, Integer> result() {
+			return result;
+		}
+
+		boolean makesItem() {
+			return resultIsItem;
+		}
 	}
 
 	// Enchantments belong to the world you are in, so the plan is thrown away when you join another one.

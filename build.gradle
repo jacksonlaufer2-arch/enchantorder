@@ -19,6 +19,18 @@ loom {
 	}
 }
 
+fabricApi {
+	// Adds `./gradlew runClientGameTest`, which starts the real game and runs src/gametest:
+	// it opens an anvil, clicks through the panels and takes screenshots.
+	configureTests {
+		createSourceSet = true
+		modId = "enchantorder-test"
+		enableGameTests = false
+		enableClientGameTests = true
+		eula = true // By setting this to true, you agree to the Minecraft EULA (https://aka.ms/MinecraftEULA).
+	}
+}
+
 dependencies {
 	// To change the versions see the gradle.properties file
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
