@@ -123,6 +123,12 @@ list() { # list classes matching a regex
   jp net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents
   jp 'net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents$AllowMouseClick'
   jp 'net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents$AllowMouseScroll'
+  jp 'net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents$AllowMouseRelease'
+  jp 'net.fabricmc.fabric.api.client.screen.v1.ScreenEvents$AfterExtract'
+  jp net.minecraft.core.HolderGetter
+  jp net.minecraft.core.Registry
+  jp net.minecraft.world.item.ItemInstance
+  jp net.minecraft.core.component.DataComponentHolder
   jp net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
   jp net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents
   jp 'net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents$Disconnect'
