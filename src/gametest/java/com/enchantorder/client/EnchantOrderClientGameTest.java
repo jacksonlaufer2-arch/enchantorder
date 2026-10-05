@@ -96,6 +96,12 @@ public class EnchantOrderClientGameTest implements FabricClientGameTest {
 					"expected 49 levels, got " + context.computeOnClient(client -> AnvilPlanner.INSTANCE.totalLevels()));
 			context.takeScreenshot("2-order");
 
+			// The level arrows: lower Sharpness to IV, then put it back to V.
+			clickLevelArrow(context, Enchantments.SHARPNESS, true);
+			check(context, client -> levelOf(Enchantments.SHARPNESS) == 4, "the < arrow should lower the level");
+			clickLevelArrow(context, Enchantments.SHARPNESS, false);
+			check(context, client -> levelOf(Enchantments.SHARPNESS) == 5, "the > arrow should raise the level");
+
 			// Hover the third step to show its tooltip.
 			OrderPanel order = context.computeOnClient(client -> panel(client, OrderPanel.class));
 			moveTo(context, order.listLeft() + 30, order.listTop() + 1 + 2 * 24 + 12);
@@ -141,6 +147,16 @@ public class EnchantOrderClientGameTest implements FabricClientGameTest {
 			context.waitTicks(5);
 			context.takeScreenshot("5-1080p");
 
+			// "Clear" unticks everything, and "My books" ticks what you have books for (just Mending here;
+			// the book from step 1 has two enchantments so it doesn't count).
+			PickerPanel bigPicker = context.computeOnClient(client -> panel(client, PickerPanel.class));
+			clickAt(context, bigPicker.clearX() + 5, bigPicker.buttonY() + 5);
+			check(context, client -> !AnvilPlanner.INSTANCE.hasSelection(), "Clear should untick everything");
+			clickAt(context, bigPicker.myBooksX() + 5, bigPicker.buttonY() + 5);
+			check(context, client -> levelOf(Enchantments.MENDING) == 1 && AnvilPlanner.INSTANCE.steps().size() == 1,
+					"My books should tick just Mending");
+			context.takeScreenshot("6-my-books");
+
 			context.setScreen(() -> null);
 		}
 	}
@@ -174,6 +190,32 @@ public class EnchantOrderClientGameTest implements FabricClientGameTest {
 			throw new AssertionError(key + " is not in the list");
 		});
 		clickAt(context, position[0], position[1]);
+	}
+
+	private static void clickLevelArrow(ClientGameTestContext context, ResourceKey<Enchantment> key, boolean left) {
+		int[] position = context.computeOnClient(client -> {
+			PickerPanel picker = panel(client, PickerPanel.class);
+			List<AnvilPlanner.Choice> choices = AnvilPlanner.INSTANCE.choices();
+			for (int i = 0; i < choices.size(); i++) {
+				if (choices.get(i).enchantment.is(key)) {
+					int x = left ? picker.leftArrowX(choices.get(i), picker.listLeft(), picker.rowWidth())
+							: PickerPanel.rightArrowX(picker.listLeft(), picker.rowWidth());
+					return new int[] {x + 2, picker.listTop() + 1 + i * 12 - picker.scroll + 6};
+				}
+			}
+			throw new AssertionError(key + " is not in the list");
+		});
+		clickAt(context, position[0], position[1]);
+	}
+
+	/** The level an enchantment is ticked at, or 0 if it isn't ticked. */
+	private static int levelOf(ResourceKey<Enchantment> key) {
+		for (AnvilPlanner.Choice choice : AnvilPlanner.INSTANCE.choices()) {
+			if (choice.enchantment.is(key)) {
+				return choice.status() == AnvilPlanner.Status.SELECTED ? AnvilPlanner.INSTANCE.selectedLevel(choice) : 0;
+			}
+		}
+		return 0;
 	}
 
 	/** Clicks at a position inside the anvil window, measured from its top-left corner. */

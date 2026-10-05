@@ -15,7 +15,7 @@ import net.minecraft.world.inventory.AnvilMenu;
  */
 final class PickerPanel extends PanelWidget {
 	private static final int ROW = 12;
-	private static final int LEVEL_COLUMN = 32;
+	private static final int NAME_X = 13;
 	private static final int ROW_SELECTED = 0xFF233D27;
 	private static final int CHECK = 0xFF55FF55;
 	private static final int CURSE = 0xFFFF6E6E;
@@ -38,19 +38,19 @@ final class PickerPanel extends PanelWidget {
 		return ROW * 2;
 	}
 
-	private int buttonWidth() {
+	int buttonWidth() {
 		return (getWidth() - PADDING * 2 - 4) / 2;
 	}
 
-	private int buttonY() {
+	int buttonY() {
 		return getBottom() - FOOTER + 3;
 	}
 
-	private int myBooksX() {
+	int myBooksX() {
 		return listLeft();
 	}
 
-	private int clearX() {
+	int clearX() {
 		return listRight() - buttonWidth();
 	}
 
@@ -114,7 +114,7 @@ final class PickerPanel extends PanelWidget {
 		}
 
 		// Tick box.
-		int boxX = x + 3;
+		int boxX = x + 2;
 		int boxY = y + 2;
 		graphics.outline(boxX, boxY, 8, 8, clickable ? 0xFFA0A0A0 : 0xFF505050);
 		if (status == Status.SELECTED) {
@@ -123,33 +123,68 @@ final class PickerPanel extends PanelWidget {
 			graphics.fill(boxX + 2, boxY + 2, boxX + 6, boxY + 6, ON_ITEM);
 		}
 
-		// Level, on the right.
-		int right = x + width - 2;
-		int levelSpace;
-		if (status == Status.SELECTED && choice.hasLevelChoice()) {
+		// Level, on the right: "< III >" when it can be changed, otherwise just the numeral.
+		String numeral = choice.maxLevel > 1 ? numeral(shownLevel(choice)) : "";
+		if (hasArrows(choice)) {
 			int level = planner.selectedLevel(choice);
-			String numeral = numeral(level);
-			boolean overLeft = hovered && isOverLeftArrow(mouseX, x, width);
-			boolean overRight = hovered && isOverRightArrow(mouseX, x, width);
 			int arrowColor = 0xFFFFFF55;
-			graphics.text(font, "<", right - LEVEL_COLUMN + 1, y + 2, level > choice.minLevel() ? (overLeft ? TEXT : arrowColor) : TEXT_OFF, true);
-			graphics.text(font, ">", right - 5, y + 2, level < choice.maxLevel ? (overRight ? TEXT : arrowColor) : TEXT_OFF, true);
-			graphics.text(font, numeral, right - LEVEL_COLUMN / 2 - 2 - font.width(numeral) / 2, y + 2, TEXT, true);
-			levelSpace = LEVEL_COLUMN + 2;
+			boolean overLeft = hovered && isOverLeftArrow(choice, mouseX, x, width);
+			boolean overRight = hovered && isOverRightArrow(mouseX, x, width);
+			graphics.text(font, "<", leftArrowX(choice, x, width), y + 2, level > choice.minLevel() ? (overLeft ? TEXT : arrowColor) : TEXT_OFF, true);
+			graphics.text(font, ">", rightArrowX(x, width), y + 2, level < choice.maxLevel ? (overRight ? TEXT : arrowColor) : TEXT_OFF, true);
+			graphics.text(font, numeral, numeralRight(x, width) - font.width(numeral), y + 2, TEXT, true);
 		} else {
-			int shownLevel = switch (status) {
-				case SELECTED -> planner.selectedLevel(choice);
-				case ON_ITEM -> choice.levelOnItem;
-				default -> choice.maxLevel;
-			};
-			String numeral = choice.maxLevel > 1 ? numeral(shownLevel) : "";
-			graphics.text(font, numeral, right - font.width(numeral), y + 2, status == Status.SELECTED ? TEXT : textColor(choice), true);
-			levelSpace = font.width(numeral) + 4;
+			graphics.text(font, numeral, x + width - 2 - font.width(numeral), y + 2, status == Status.SELECTED ? TEXT : textColor(choice), true);
 		}
 
 		// Name.
 		String name = choice.enchantment.value().description().getString();
-		graphics.text(font, fit(name, width - 15 - levelSpace), x + 15, y + 2, textColor(choice), true);
+		graphics.text(font, fit(name, nameWidth(choice, x, width)), x + NAME_X, y + 2, textColor(choice), true);
+	}
+
+	private int shownLevel(Choice choice) {
+		return switch (choice.status()) {
+			case SELECTED -> planner.selectedLevel(choice);
+			case ON_ITEM -> choice.levelOnItem;
+			default -> choice.maxLevel;
+		};
+	}
+
+	/** How much room the name has before it runs into the level on the right. */
+	private int nameWidth(Choice choice, int rowX, int rowWidth) {
+		int levelLeft;
+		if (hasArrows(choice)) {
+			levelLeft = leftArrowX(choice, rowX, rowWidth);
+		} else {
+			levelLeft = rowX + rowWidth - 2 - (choice.maxLevel > 1 ? font.width(numeral(shownLevel(choice))) : 0);
+		}
+		return levelLeft - 3 - (rowX + NAME_X);
+	}
+
+	private static boolean hasArrows(Choice choice) {
+		return choice.status() == Status.SELECTED && choice.hasLevelChoice();
+	}
+
+	// The ">" sits at the right edge of the row, the numeral just left of it, and the "<" just left of that.
+	static int rightArrowX(int rowX, int rowWidth) {
+		return rowX + rowWidth - 7;
+	}
+
+	private static int numeralRight(int rowX, int rowWidth) {
+		return rightArrowX(rowX, rowWidth) - 2;
+	}
+
+	int leftArrowX(Choice choice, int rowX, int rowWidth) {
+		return numeralRight(rowX, rowWidth) - font.width(numeral(planner.selectedLevel(choice))) - 7;
+	}
+
+	private boolean isOverLeftArrow(Choice choice, double mouseX, int rowX, int rowWidth) {
+		int arrowX = leftArrowX(choice, rowX, rowWidth);
+		return mouseX >= arrowX - 3 && mouseX < arrowX + 7;
+	}
+
+	private static boolean isOverRightArrow(double mouseX, int rowX, int rowWidth) {
+		return mouseX >= rightArrowX(rowX, rowWidth) - 2 && mouseX < rowX + rowWidth;
 	}
 
 	private void rowTooltip(GuiGraphicsExtractor graphics, Choice choice, int rowWidth, int mouseX, int mouseY) {
@@ -165,7 +200,7 @@ final class PickerPanel extends PanelWidget {
 				}
 			}
 			case SELECTED -> {
-				if (choice.hasLevelChoice() && (isOverLeftArrow(mouseX, listLeft(), rowWidth) || isOverRightArrow(mouseX, listLeft(), rowWidth))) {
+				if (hasArrows(choice) && (isOverLeftArrow(choice, mouseX, listLeft(), rowWidth) || isOverRightArrow(mouseX, listLeft(), rowWidth))) {
 					tooltip(graphics, List.of(Component.translatable("enchantorder.tooltip.levels")), mouseX, mouseY);
 				} else if (isNameCut(choice, rowWidth)) {
 					tooltip(graphics, List.of(name), mouseX, mouseY);
@@ -175,7 +210,7 @@ final class PickerPanel extends PanelWidget {
 	}
 
 	private boolean isNameCut(Choice choice, int rowWidth) {
-		return font.width(choice.enchantment.value().description().getString()) > rowWidth - 15 - LEVEL_COLUMN - 2;
+		return font.width(choice.enchantment.value().description().getString()) > nameWidth(choice, listLeft(), rowWidth);
 	}
 
 	@Override
@@ -199,8 +234,8 @@ final class PickerPanel extends PanelWidget {
 			return;
 		}
 		Choice choice = choices.get(row);
-		if (choice.status() == Status.SELECTED && choice.hasLevelChoice()) {
-			if (isOverLeftArrow(mouseX, listLeft(), rowWidth())) {
+		if (hasArrows(choice)) {
+			if (isOverLeftArrow(choice, mouseX, listLeft(), rowWidth())) {
 				playClickSound();
 				planner.changeLevel(choice, -1);
 				return;
@@ -219,16 +254,6 @@ final class PickerPanel extends PanelWidget {
 
 	private boolean isClickable(Choice choice) {
 		return choice.status() == Status.SELECTED || (choice.status() == Status.AVAILABLE && planner.canSelectMore());
-	}
-
-	private static boolean isOverLeftArrow(double mouseX, int rowX, int rowWidth) {
-		int right = rowX + rowWidth - 2;
-		return mouseX >= right - LEVEL_COLUMN - 1 && mouseX < right - LEVEL_COLUMN + 8;
-	}
-
-	private static boolean isOverRightArrow(double mouseX, int rowX, int rowWidth) {
-		int right = rowX + rowWidth - 2;
-		return mouseX >= right - 8 && mouseX < right + 2;
 	}
 
 	private static int textColor(Choice choice) {

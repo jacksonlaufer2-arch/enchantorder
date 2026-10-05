@@ -133,6 +133,9 @@ public final class AnvilPlanner {
 	private List<Step> steps = List.of();
 	private int currentStep = -1;
 	private boolean creative;
+	// Which anvil we last looked at, and whether it had something to plan for in its first slot.
+	private AnvilMenu lastMenu;
+	private boolean hadItem;
 
 	private AnvilPlanner() {
 	}
@@ -205,8 +208,11 @@ public final class AnvilPlanner {
 			recalculate();
 		}
 
+		boolean newAnvil = menu != lastMenu;
+		lastMenu = menu;
 		ItemStack input = menu.getSlot(AnvilMenu.INPUT_SLOT).getItem();
-		if (canPlanFor(input)) {
+		boolean hasItem = canPlanFor(input);
+		if (hasItem) {
 			if (item.isEmpty() || input.getItem() != item.getItem()) {
 				// A different kind of item: start a fresh plan for it.
 				startPlan(input, false);
@@ -215,10 +221,12 @@ public final class AnvilPlanner {
 				// some of the enchantments). Plan for it instead, keeping whatever still makes sense.
 				startPlan(input, true);
 			}
-		} else if (selected.isEmpty() && !item.isEmpty()) {
-			// Nothing ticked and the item was taken out, so there is nothing worth keeping on screen.
+		} else if (selected.isEmpty() && !item.isEmpty() && (hadItem || newAnvil)) {
+			// The item was just taken out (or the anvil was just opened without it) and nothing is
+			// ticked, so there is nothing worth keeping on screen.
 			clear();
 		}
+		hadItem = hasItem;
 
 		updateProgress(menu);
 	}

@@ -28,7 +28,7 @@ import net.minecraft.util.FormattedCharSequence;
 abstract class PanelWidget extends AbstractWidget {
 	static final int HEADER = 22;
 	static final int FOOTER = 20;
-	static final int PADDING = 6;
+	static final int PADDING = 5;
 	static final int SCROLLBAR = 4;
 
 	static final int LABEL = 0xFF404040;

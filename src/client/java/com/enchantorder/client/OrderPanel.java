@@ -99,18 +99,23 @@ final class OrderPanel extends PanelWidget {
 		}
 		boolean done = step.isDone();
 
-		String number = done ? "✔" : step.number + ".";
+		String number = done ? "\u2714" : step.number + ".";
 		graphics.text(font, number, x + 4, y + 3, done ? DONE_TICK : current ? 0xFFFFFF55 : TEXT_DIM, true);
 
+		// Leave room for the widest step number, so the names line up.
+		int textX = x + 7 + font.width(planner.steps().size() + ".");
+		String first = step.first.label().getString();
+		// "3 lvl" when there's room, otherwise just "3" so the name has more space.
 		String cost = Component.translatable("enchantorder.order.cost", step.cost).getString();
+		if (font.width(first) > x + width - 2 - font.width(cost) - 4 - textX) {
+			cost = String.valueOf(step.cost);
+		}
 		int costWidth = font.width(cost);
-		graphics.text(font, cost, x + width - 3 - costWidth, y + 3, done ? DONE : costColor(step.cost), true);
+		graphics.text(font, cost, x + width - 2 - costWidth, y + 3, done ? DONE : costColor(step.cost), true);
 
-		int textX = x + 17;
-		graphics.text(font, fit(step.first.label().getString(), x + width - 3 - costWidth - 4 - textX), textX, y + 3,
-				done ? DONE : partColor(step.first), true);
-		graphics.text(font, "+", x + 9, y + 13, done ? DONE : TEXT_DIM, true);
-		graphics.text(font, fit(step.second.label().getString(), x + width - 3 - textX), textX, y + 13,
+		graphics.text(font, fit(first, x + width - 2 - costWidth - 4 - textX), textX, y + 3, done ? DONE : partColor(step.first), true);
+		graphics.text(font, "+", x + 8, y + 13, done ? DONE : TEXT_DIM, true);
+		graphics.text(font, fit(step.second.label().getString(), x + width - 2 - textX), textX, y + 13,
 				done ? DONE : partColor(step.second), true);
 	}
 
