@@ -71,6 +71,7 @@ If the panels look squashed, your window is too narrow for them at your GUI scal
 | `src/client/java/com/enchantorder/client/OrderPanel.java` | The right panel (the order) |
 | `src/client/java/com/enchantorder/client/PanelWidget.java` | The grey panel look, scrolling and buttons shared by both panels |
 | `src/client/resources/assets/enchantorder/lang/en_us.json` | All the text the mod shows |
+| `src/gametest/java/com/enchantorder/client/EnchantOrderClientGameTest.java` | An automatic test that starts the real game, opens an anvil and clicks through the panels. GitHub runs it on every push and saves screenshots (the **Screenshots** artifact) |
 
 ## Ideas for later
 

@@ -60,7 +60,6 @@ jobs:
           find . -name "*.png" -path "*screenshots*" -not -path "./.gradle/*" | sort
           for f in $(find . -name "*.png" -path "*screenshots*" -not -path "./.gradle/*" | sort); do
             echo "=====BEGIN $f"
-            convert "$f" -colors 255 PNG8:/tmp/small.png
-            base64 -w 0 /tmp/small.png; echo
+            base64 -w 0 "$f"; echo
             echo "=====END $f"
           done
