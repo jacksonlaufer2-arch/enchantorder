@@ -41,8 +41,10 @@ Apply only works when:
 
 If something is missing, the button says so (for example "Need 49 levels" or "Missing books"). Hover over it to see exactly what.
 
-It only ever uses the exact item you planned with (same name, same damage), never a spare copy of it from your inventory.
+It only ever uses the exact item you planned with, never a spare copy of it from your inventory.
+If you've used or renamed the item since you planned, the button says "Put item in anvil": do that, and the plan follows it.
 Before taking each result it checks that the anvil asks the price the plan says. If not, it stops before paying and tells you why under the steps.
+Anything typed in the anvil's name box is cleared first, so it never renames your item for an extra level.
 
 Clicking anywhere or pressing a key (or closing the anvil) stops it straight away. Nothing is lost: the plan remembers which steps are done,
 so you can click Apply again later to carry on. That includes when an anvil wears out and breaks halfway.

@@ -17,6 +17,7 @@ import net.minecraft.core.Registry;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.contents.TranslatableContents;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
@@ -212,7 +213,14 @@ public class EnchantOrderClientGameTest implements FabricClientGameTest {
 					context.takeScreenshot("9-auto-working");
 				}
 				context.waitFor(client -> !AutoEnchanter.INSTANCE.isRunning(), 1200);
+				// The only acceptable reason to stop early is the anvil breaking.
+				if (!allStepsDone(context)) {
+					check(context, client -> autoSaid("enchantorder.auto.closed") && !(client.gui.screen() instanceof AnvilScreen),
+							"Auto stopped before finishing: " + context.computeOnClient(client -> AutoEnchanter.INSTANCE.message().getString()));
+				}
 			}
+			check(context, client -> autoSaid("enchantorder.auto.done"),
+					"Auto should end with Done, but said: " + context.computeOnClient(client -> AutoEnchanter.INSTANCE.message().getString()));
 			check(context, client -> allStepsDoneOnClient(), "every step should be done: " + context.computeOnClient(client -> AutoEnchanter.INSTANCE.message().getString()));
 			check(context, client -> client.player.experienceLevel == 60 - 49,
 					"the steps should cost exactly 49 levels, the player has " + context.computeOnClient(client -> client.player.experienceLevel) + " left");
@@ -236,6 +244,11 @@ public class EnchantOrderClientGameTest implements FabricClientGameTest {
 		context.getInput().pressKey(options -> options.keyUse);
 		context.waitForScreen(AnvilScreen.class);
 		context.waitTicks(5);
+	}
+
+	/** True if Auto's last message is the one with this translation key. */
+	private static boolean autoSaid(String key) {
+		return AutoEnchanter.INSTANCE.message().getContents() instanceof TranslatableContents contents && contents.getKey().equals(key);
 	}
 
 	/** How many enchantments the named (or the plain) diamond sword in the inventory has, or -1 if it's not there. */

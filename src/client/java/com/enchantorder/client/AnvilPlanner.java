@@ -4,11 +4,13 @@ import com.enchantorder.plan.AnvilOptimizer;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.core.Holder;
@@ -171,8 +173,10 @@ public final class AnvilPlanner {
 	// The work penalty of the book you have for each ticked enchantment (at the ticked level). It is
 	// remembered after the book is used up, so doing a step doesn't change the plan.
 	private final Map<Holder<Enchantment>, Integer> bookPenalties = new HashMap<>();
-	// Which step uses up the single book for each ticked enchantment.
+	// Which step uses up the single book for each ticked enchantment, and the enchantments whose book
+	// has been used up already (their penalty is then kept, whatever other copies you have).
 	private Map<Holder<Enchantment>, Integer> bookSteps = Map.of();
+	private final Set<Holder<Enchantment>> usedBooks = new HashSet<>();
 	// True while the anvil steps are being done automatically: the plan must not change under it.
 	private boolean locked;
 
@@ -251,10 +255,10 @@ public final class AnvilPlanner {
 	}
 
 	/**
-	 * The things the remaining steps need that you don't have in your inventory, hotbar or the anvil: the
-	 * item itself, or single-enchantment books (at the ticked level).
+	 * The single-enchantment books (at the ticked level) the remaining steps need that you don't have in
+	 * your inventory, hotbar or the anvil.
 	 */
-	public List<Need> missingThings(AnvilMenu menu) {
+	public List<Need> missingBooks(AnvilMenu menu) {
 		List<ItemStack> owned = ownedStacks(menu);
 		List<Need> missing = new ArrayList<>();
 		for (Step step : steps) {
@@ -262,12 +266,27 @@ public final class AnvilPlanner {
 				continue;
 			}
 			for (Need need : List.of(step.firstNeeds, step.secondNeeds)) {
-				if (need.startingThing() && owned.stream().noneMatch(stack -> matches(stack, need))) {
+				if (need.startingThing() && !need.isItem() && owned.stream().noneMatch(stack -> matches(stack, need))) {
 					missing.add(need);
 				}
 			}
 		}
 		return missing;
+	}
+
+	/** True if you have exactly what is described, in your inventory, hotbar or the anvil. */
+	public boolean owns(AnvilMenu menu, Need need) {
+		return ownedStacks(menu).stream().anyMatch(stack -> matches(stack, need));
+	}
+
+	/** How the item should look for the next step that uses it, or null if no step left uses it. */
+	public Need itemNeededNext() {
+		for (Step step : steps) {
+			if (!step.done && step.firstNeeds.isItem()) {
+				return step.firstNeeds;
+			}
+		}
+		return null;
 	}
 
 	/** The item's name, or the enchantments on a book. */
@@ -278,7 +297,7 @@ public final class AnvilPlanner {
 	/**
 	 * True if the stack is exactly the item or book described, work penalty included. For the item, it
 	 * also has to be the very copy you planned with (same name, damage and so on), because only its
-	 * enchantments and work penalty change along the way.
+	 * enchantments and work penalty change along the way. This is what the automatic steps go by.
 	 */
 	public boolean matches(ItemStack stack, Need need) {
 		if (stack.isEmpty() || stack.getOrDefault(DataComponents.REPAIR_COST, 0) != need.workPenalty()) {
@@ -287,6 +306,23 @@ public final class AnvilPlanner {
 		if (need.isItem()) {
 			return !stack.has(DataComponents.STORED_ENCHANTMENTS) && sameEnchantments(stack.getEnchantments(), need.enchantments())
 					&& sameApartFromEnchanting(stack, item);
+		}
+		ItemEnchantments stored = stack.get(DataComponents.STORED_ENCHANTMENTS);
+		return stored != null && sameEnchantments(stored, need.enchantments());
+	}
+
+	/**
+	 * True if the stack has the enchantments described: the item or book the plan has at that point, even
+	 * if it has been used or renamed since, or made with a book that had a different work penalty. This is
+	 * what ticking off steps goes by, so progress isn't lost.
+	 */
+	public boolean looksLike(ItemStack stack, Need need) {
+		if (stack.isEmpty()) {
+			return false;
+		}
+		if (need.isItem()) {
+			return stack.getItem() == item.getItem() && !stack.has(DataComponents.STORED_ENCHANTMENTS)
+					&& sameEnchantments(stack.getEnchantments(), need.enchantments());
 		}
 		ItemEnchantments stored = stack.get(DataComponents.STORED_ENCHANTMENTS);
 		return stored != null && sameEnchantments(stored, need.enchantments());
@@ -367,6 +403,9 @@ public final class AnvilPlanner {
 				// The same kind of item, but not one this plan made (for example one that already has
 				// some of the enchantments). Plan for it instead, keeping whatever still makes sense.
 				startPlan(input, true);
+			} else if (!sameApartFromEnchanting(input, item)) {
+				// The planned item, but used or renamed since: follow this copy from now on.
+				followCopy(input);
 			}
 		} else if (selected.isEmpty() && !item.isEmpty() && (hadItem || newAnvil)) {
 			// The item was just taken out (or the anvil was just opened without it) and nothing is
@@ -411,6 +450,7 @@ public final class AnvilPlanner {
 			selected.put(choice.enchantment, newLevel);
 			// The book you have was for the old level, so its penalty doesn't count any more.
 			bookPenalties.remove(choice.enchantment);
+			usedBooks.remove(choice.enchantment);
 			recalculate();
 		}
 	}
@@ -466,6 +506,7 @@ public final class AnvilPlanner {
 		choices = List.of();
 		selected.clear();
 		bookPenalties.clear();
+		usedBooks.clear();
 		plan = null;
 		steps = List.of();
 		bookSteps = Map.of();
@@ -478,9 +519,11 @@ public final class AnvilPlanner {
 		choices = buildChoices(item);
 		selected.clear();
 		bookPenalties.clear();
+		usedBooks.clear();
 		for (Choice choice : choices) {
 			Integer level = previous.get(choice.enchantment);
-			if (level == null) {
+			// Skip what the item already has at the ticked level (or higher): that part is done.
+			if (level == null || choice.levelOnItem >= level) {
 				continue;
 			}
 			refreshStatuses();
@@ -489,6 +532,18 @@ public final class AnvilPlanner {
 			}
 		}
 		recalculate();
+	}
+
+	/** Swaps in another copy of the planned item (used or renamed since), keeping the plan as it is. */
+	private void followCopy(ItemStack copy) {
+		ItemStack planned = copy.copyWithCount(1);
+		planned.set(DataComponents.ENCHANTMENTS, item.getEnchantments());
+		planned.set(DataComponents.REPAIR_COST, itemWorkPenalty());
+		boolean renamed = !planned.getHoverName().equals(item.getHoverName());
+		item = planned;
+		if (renamed) {
+			recalculate(); // So the steps show the new name.
+		}
 	}
 
 	private static List<Choice> buildChoices(ItemStack item) {
@@ -574,14 +629,13 @@ public final class AnvilPlanner {
 	/**
 	 * Notes the work penalty of the book you have for each ticked enchantment (the lowest, if you have more
 	 * than one). Returns true if any of them changed. A book that isn't there (yet, or any more) keeps the
-	 * penalty it had last time, and so does a book whose step is done, so a leftover copy doesn't change
-	 * the plan halfway through.
+	 * penalty it had last time, and so does a book that has been used up already, so a leftover copy
+	 * doesn't change the plan halfway through.
 	 */
 	private boolean bookPenaltiesChanged(List<ItemStack> owned) {
 		boolean changed = false;
 		for (Map.Entry<Holder<Enchantment>, Integer> entry : selected.entrySet()) {
-			Integer step = bookSteps.get(entry.getKey());
-			if (step != null && steps.get(step).done) {
+			if (usedBooks.contains(entry.getKey())) {
 				continue;
 			}
 			Map<Holder<Enchantment>, Integer> book = Map.of(entry.getKey(), entry.getValue());
@@ -608,6 +662,7 @@ public final class AnvilPlanner {
 		bookSteps = Map.of();
 		currentStep = -1;
 		bookPenalties.keySet().retainAll(selected.keySet());
+		usedBooks.retainAll(selected.keySet());
 		if (lastMenu != null) {
 			bookPenaltiesChanged(ownedStacks(lastMenu));
 		}
@@ -711,8 +766,13 @@ public final class AnvilPlanner {
 		for (int i = steps.size() - 1; i >= 0; i--) {
 			Step step = steps.get(i);
 			// A step also counts as done once the thing it made has been used up in a later step.
-			step.done = (step.usedBy >= 0 && steps.get(step.usedBy).done) || owned.stream().anyMatch(stack -> matches(stack, step.makes));
+			step.done = (step.usedBy >= 0 && steps.get(step.usedBy).done) || owned.stream().anyMatch(stack -> looksLike(stack, step.makes));
 		}
+		bookSteps.forEach((enchantment, step) -> {
+			if (steps.get(step).done) {
+				usedBooks.add(enchantment);
+			}
+		});
 		for (int i = 0; i < steps.size(); i++) {
 			if (!steps.get(i).done) {
 				currentStep = i;
@@ -721,13 +781,24 @@ public final class AnvilPlanner {
 		}
 	}
 
-	/** True if the stack is the planned item, exactly as it was before or after one of the steps. */
+	/**
+	 * True if the stack is the planned item before or after one of the steps (it may have been used or
+	 * renamed since). Before any step it also needs the planned work penalty, since every price depends
+	 * on it; a copy with another penalty gets a plan of its own.
+	 */
 	private boolean isPartOfPlan(ItemStack stack) {
-		if (ItemStack.isSameItemSameComponents(stack, item)) {
+		if (stack.getItem() != item.getItem()) {
+			return false;
+		}
+		Map<Holder<Enchantment>, Integer> original = new HashMap<>();
+		for (var entry : item.getEnchantments().entrySet()) {
+			original.put(entry.getKey(), entry.getIntValue());
+		}
+		if (sameEnchantments(stack.getEnchantments(), original) && stack.getOrDefault(DataComponents.REPAIR_COST, 0) == itemWorkPenalty()) {
 			return true;
 		}
 		for (Step step : steps) {
-			if (step.makes.isItem() && matches(stack, step.makes)) {
+			if (step.makes.isItem() && looksLike(stack, step.makes)) {
 				return true;
 			}
 		}

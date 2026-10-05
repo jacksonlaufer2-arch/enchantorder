@@ -34,7 +34,8 @@ final class OrderPanel extends PanelWidget {
 	private final AnvilMenu menu;
 	private final AutoEnchanter auto = AutoEnchanter.INSTANCE;
 	private int shownCurrentStep = -2;
-	private Component shownMessage = Component.empty();
+	// Shared by every panel, so reopening the anvil (or resizing the window) doesn't scroll to an old message again.
+	private static Component shownMessage = Component.empty();
 
 	OrderPanel(int x, int y, int width, int height, AnvilMenu menu) {
 		super(x, y, width, height, Component.translatable("enchantorder.order.title"));

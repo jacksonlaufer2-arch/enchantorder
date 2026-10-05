@@ -28,8 +28,10 @@ public final class AnvilOverlay {
 	private final AnvilMenu menu;
 	private final List<PanelWidget> panels;
 	private boolean pressedOnPanel;
-	// A key press that stopped the automatic steps: its typed letter mustn't end up in the name box.
-	private boolean swallowTyping;
+	// The key press that stopped the automatic steps: until it's let go, it does nothing else (not even
+	// when held down so it repeats), and its letter doesn't end up in the name box.
+	private boolean stopKeyHeld;
+	private int stopKey;
 
 	private AnvilOverlay(AnvilScreen screen) {
 		menu = screen.getMenu();
@@ -64,9 +66,11 @@ public final class AnvilOverlay {
 		ScreenMouseEvents.allowMouseRelease(screen).register((s, event) -> overlay.allowRelease());
 		ScreenMouseEvents.allowMouseScroll(screen).register((s, mouseX, mouseY, scrollX, scrollY) -> overlay.allowScroll(mouseX, mouseY, scrollY));
 		ScreenKeyboardEvents.allowKeyPress(screen).register((s, event) -> overlay.allowKeyPress(event));
-		ScreenKeyboardEvents.allowCharType(screen).register((s, event) -> !overlay.swallowTyping && !AutoEnchanter.INSTANCE.isRunning());
+		ScreenKeyboardEvents.allowCharType(screen).register((s, event) -> !overlay.stopKeyHeld && !AutoEnchanter.INSTANCE.isRunning());
 		ScreenKeyboardEvents.allowKeyRelease(screen).register((s, event) -> {
-			overlay.swallowTyping = false;
+			if (event.key() == overlay.stopKey) {
+				overlay.stopKeyHeld = false;
+			}
 			return true;
 		});
 	}
@@ -76,11 +80,15 @@ public final class AnvilOverlay {
 	 * can't type into the anvil's name box). Escape still closes the anvil, which stops it too.
 	 */
 	private boolean allowKeyPress(KeyEvent event) {
+		if (stopKeyHeld && event.key() == stopKey) {
+			return false;
+		}
 		if (!AutoEnchanter.INSTANCE.isRunning() || event.key() == GLFW.GLFW_KEY_ESCAPE) {
 			return true;
 		}
 		AutoEnchanter.INSTANCE.stop(Component.translatable("enchantorder.auto.stopped"), false);
-		swallowTyping = true;
+		stopKeyHeld = true;
+		stopKey = event.key();
 		return false;
 	}
 

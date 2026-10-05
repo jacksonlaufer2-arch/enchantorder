@@ -7,8 +7,10 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.util.StringUtil;
 import net.minecraft.world.inventory.AnvilMenu;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.item.ItemStack;
@@ -42,6 +44,7 @@ public final class AutoEnchanter {
 	private int resultChecks;
 	private int lastCost;
 	private boolean lastResultEmpty;
+	private boolean resetNameBox;
 	private Component message = Component.empty();
 	private boolean messageIsProblem;
 	private List<AnvilPlanner.Step> messageSteps = List.of();
@@ -78,15 +81,28 @@ public final class AutoEnchanter {
 		if (player == null || planner.currentStep() < 0) {
 			return problems;
 		}
-		List<AnvilPlanner.Need> missing = planner.missingThings(menu);
+		// The exact copy of the item you planned with has to be there. If it has been used or renamed since,
+		// putting it in the anvil makes the plan follow it (you may have spares, so it can't just guess).
+		AnvilPlanner.Need itemNext = planner.itemNeededNext();
+		ItemStack inAnvil = menu.getSlot(AnvilMenu.INPUT_SLOT).getItem();
+		if (itemNext != null && !planner.owns(menu, itemNext)) {
+			if (planner.looksLike(inAnvil, itemNext)) {
+				problems.add(new Problem(Component.translatable("enchantorder.auto.penalty.brief"), Component.translatable("enchantorder.auto.penalty")));
+			} else {
+				problems.add(new Problem(Component.translatable("enchantorder.auto.put_in.brief"),
+						Component.translatable("enchantorder.auto.put_in", planner.item().getHoverName())));
+			}
+		}
+		if (!anvilKeepsName(planner.item())) {
+			problems.add(new Problem(Component.translatable("enchantorder.auto.name.brief"), Component.translatable("enchantorder.auto.name")));
+		}
+		List<AnvilPlanner.Need> missing = planner.missingBooks(menu);
 		if (!missing.isEmpty()) {
 			MutableComponent list = Component.empty();
 			for (AnvilPlanner.Need thing : missing) {
 				list.append(list.getSiblings().isEmpty() ? Component.empty() : Component.literal(", ")).append(planner.describe(thing));
 			}
-			boolean itemMissing = missing.stream().anyMatch(AnvilPlanner.Need::isItem);
-			problems.add(new Problem(Component.translatable(itemMissing ? "enchantorder.auto.missing_item.brief" : "enchantorder.auto.missing.brief"),
-					Component.translatable("enchantorder.auto.missing", list)));
+			problems.add(new Problem(Component.translatable("enchantorder.auto.missing.brief"), Component.translatable("enchantorder.auto.missing", list)));
 		}
 		int needed = planner.remainingLevels();
 		if (!planner.isCreative() && player.experienceLevel < needed) {
@@ -98,6 +114,18 @@ public final class AutoEnchanter {
 					Component.translatable("enchantorder.auto.holding")));
 		}
 		return problems;
+	}
+
+	/**
+	 * False if the item has a name the anvil's name box can't hold (too long, or with characters it
+	 * leaves out). The anvil would then rename it on every step, for 1 more level each time.
+	 */
+	private static boolean anvilKeepsName(ItemStack item) {
+		if (!item.has(DataComponents.CUSTOM_NAME)) {
+			return true;
+		}
+		String name = item.getHoverName().getString();
+		return name.length() <= AnvilMenu.MAX_NAME_LENGTH && StringUtil.filterText(name).equals(name) && !StringUtil.isBlank(name);
 	}
 
 	public void start(AnvilMenu menu) {
@@ -113,6 +141,7 @@ public final class AutoEnchanter {
 		furthestStep = planner.currentStep();
 		clicks = 0;
 		resultChecks = 0;
+		resetNameBox = true;
 		say(Component.translatable("enchantorder.auto.working"), false);
 		planner.setLocked(true);
 	}
@@ -192,6 +221,16 @@ public final class AutoEnchanter {
 			// We never leave anything on the cursor, so someone else put it there.
 			stop(Component.translatable("enchantorder.auto.holding_stop"), true);
 			return;
+		}
+
+		if (resetNameBox) {
+			// Take the item out once (it goes back in when its step comes). Putting it back resets the
+			// anvil's name box, so a name typed there before doesn't rename it for an extra level.
+			resetNameBox = false;
+			if (!menu.getSlot(AnvilMenu.INPUT_SLOT).getItem().isEmpty()) {
+				click(AnvilMenu.INPUT_SLOT);
+				return;
+			}
 		}
 
 		AnvilPlanner.Step step = steps.get(current);
