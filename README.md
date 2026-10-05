@@ -3,6 +3,8 @@
 A Fabric mod for Minecraft **26.2** that tells you the cheapest order to put enchanted books on an item, right next to the anvil.
 It does the same job as the [Minecraft Enchantment Order Calculator](https://iamcal.github.io/enchant-order/), but in the game, using the item you're actually holding.
 
+![The anvil with the enchantment list on the left and the best order on the right](docs/screenshot.png)
+
 ## How to use it
 
 1. Open an anvil and put a tool, weapon or piece of armor in the **first slot**.
