@@ -34,6 +34,7 @@ final class OrderPanel extends PanelWidget {
 	private final AnvilMenu menu;
 	private final AutoEnchanter auto = AutoEnchanter.INSTANCE;
 	private int shownCurrentStep = -2;
+	private Component shownMessage = Component.empty();
 
 	OrderPanel(int x, int y, int width, int height, AnvilMenu menu) {
 		super(x, y, width, height, Component.translatable("enchantorder.order.title"));
@@ -85,7 +86,8 @@ final class OrderPanel extends PanelWidget {
 		// Header: the title, and the "Auto" tick box.
 		int boxX = autoBoxX();
 		graphics.text(font, fit(getMessage().getString(), boxX - 4 - (getX() + 7)), getX() + 7, getY() + 8, LABEL, false);
-		boolean autoHovered = isInside(mouseX, mouseY, boxX - 1, autoBoxY() - 1, autoWidth() + 2, BOX + 2);
+		// While the steps are being done, a click only stops that, so the box doesn't look clickable.
+		boolean autoHovered = !auto.isRunning() && isInside(mouseX, mouseY, boxX - 1, autoBoxY() - 1, autoWidth() + 2, BOX + 2);
 		drawTickBox(graphics, boxX, autoBoxY(), EnchantOrderSettings.autoApply(), autoHovered);
 		graphics.text(font, Component.translatable("enchantorder.auto.checkbox"), boxX + BOX + 3, autoBoxY() + 1, LABEL, false);
 		if (autoHovered) {
@@ -103,6 +105,7 @@ final class OrderPanel extends PanelWidget {
 			drawWrapped(graphics, Component.translatable("enchantorder.order.too_expensive"), listLeft() + 3, y, width - 6, TEXT_DIM);
 		} else {
 			keepCurrentStepInView();
+			keepMessageInView();
 			graphics.enableScissor(listLeft(), listTop(), listRight(), listBottom());
 			for (int i = 0; i < steps.size(); i++) {
 				int stepY = listTop() + 1 + i * STEP - scroll;
@@ -165,20 +168,22 @@ final class OrderPanel extends PanelWidget {
 		boolean active;
 		if (auto.isRunning()) {
 			label = Component.translatable("enchantorder.auto.stop", planner.currentStep() + 1, planner.steps().size());
-			tooltip = List.of(Component.translatable("enchantorder.auto.stop.tooltip"));
+			tooltip = new ArrayList<>(List.of(Component.translatable("enchantorder.auto.stop.tooltip")));
 			active = true;
 		} else {
 			List<AutoEnchanter.Problem> problems = auto.problems(menu);
 			if (problems.isEmpty()) {
 				label = Component.translatable("enchantorder.auto.apply", planner.remainingLevels());
-				tooltip = List.of(Component.translatable("enchantorder.auto.apply.tooltip", planner.remainingLevels()));
+				tooltip = new ArrayList<>(List.of(Component.translatable("enchantorder.auto.apply.tooltip", planner.remainingLevels())));
 				active = true;
 			} else {
 				label = problems.getFirst().brief();
-				tooltip = problems.stream().map(AutoEnchanter.Problem::detail).toList();
+				tooltip = new ArrayList<>(problems.stream().map(AutoEnchanter.Problem::detail).toList());
 				active = false;
 			}
 		}
+		// The button takes the place of the total, so its tooltip also says what the total does.
+		tooltip.add(Component.translatable("enchantorder.tooltip.work_penalty_after", planner.finalWorkPenalty()).withStyle(ChatFormatting.GRAY));
 		boolean hovered = drawButton(graphics, buttonX(), buttonY(), buttonWidth(), 16, label, active, mouseX, mouseY);
 		if (hovered) {
 			tooltip(graphics, tooltip, mouseX, mouseY);
@@ -269,6 +274,18 @@ final class OrderPanel extends PanelWidget {
 			scroll = top + STEP + 2 - visible;
 		}
 		scroll = Math.clamp(scroll, 0, maxScroll());
+	}
+
+	/** Scrolls down to a new message from the automatic mode (why it stopped, or that it's done). */
+	private void keepMessageInView() {
+		Component message = auto.message();
+		if (message.equals(shownMessage)) {
+			return;
+		}
+		shownMessage = message;
+		if (!auto.isRunning() && !message.getString().isEmpty()) {
+			scroll = maxScroll();
+		}
 	}
 
 	private int costColor(int cost) {

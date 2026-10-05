@@ -16,6 +16,7 @@ import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
@@ -124,12 +125,14 @@ public class EnchantOrderClientGameTest implements FabricClientGameTest {
 			// Hand the player whatever step 1 makes: step 1 should get ticked off.
 			Map<Holder<Enchantment>, Integer> firstResult = context.computeOnClient(client -> AnvilPlanner.INSTANCE.steps().getFirst().result());
 			boolean firstMakesItem = context.computeOnClient(client -> AnvilPlanner.INSTANCE.steps().getFirst().makesItem());
+			int firstPenalty = context.computeOnClient(client -> AnvilPlanner.INSTANCE.steps().getFirst().makes().workPenalty());
 			singleplayer.getServer().runOnServer(server -> {
 				Registry<Enchantment> enchantments = server.registryAccess().lookupOrThrow(Registries.ENCHANTMENT);
 				ItemEnchantments.Mutable stored = new ItemEnchantments.Mutable(ItemEnchantments.EMPTY);
 				firstResult.forEach((holder, level) -> stored.set(enchantments.getOrThrow(holder.unwrapKey().orElseThrow()), level));
 				ItemStack made = new ItemStack(firstMakesItem ? Items.DIAMOND_SWORD : Items.ENCHANTED_BOOK);
 				made.set(firstMakesItem ? DataComponents.ENCHANTMENTS : DataComponents.STORED_ENCHANTMENTS, stored.toImmutable());
+				made.set(DataComponents.REPAIR_COST, firstPenalty);
 				singleplayer.getConnection().getServerPlayer().getInventory().setItem(20, made);
 			});
 			context.waitFor(client -> AnvilPlanner.INSTANCE.currentStep() == 1);
@@ -151,19 +154,30 @@ public class EnchantOrderClientGameTest implements FabricClientGameTest {
 					"My books should tick just Mending");
 			context.takeScreenshot("6-my-books");
 
-			// Automatic mode. Swap the inventory for a new sword and a book for each of the seven enchantments.
+			// Automatic mode. Swap the inventory for a sword called "Excalibur", a spare plain sword in the
+			// first inventory slot, and a book for each of the seven enchantments.
 			singleplayer.getServer().runOnServer(server -> {
 				ServerPlayer player = singleplayer.getConnection().getServerPlayer();
 				Registry<Enchantment> enchantments = server.registryAccess().lookupOrThrow(Registries.ENCHANTMENT);
 				player.getInventory().clearContent();
-				player.getInventory().setItem(0, new ItemStack(Items.DIAMOND_SWORD));
-				int slot = 9;
+				ItemStack excalibur = new ItemStack(Items.DIAMOND_SWORD);
+				excalibur.set(DataComponents.CUSTOM_NAME, Component.literal("Excalibur"));
+				player.getInventory().setItem(0, excalibur);
+				player.getInventory().setItem(9, new ItemStack(Items.DIAMOND_SWORD));
+				int slot = 10;
 				for (ResourceKey<Enchantment> key : SWORD_ENCHANTMENTS) {
 					Holder<Enchantment> enchantment = enchantments.getOrThrow(key);
 					player.getInventory().setItem(slot++, EnchantmentHelper.createBook(new EnchantmentInstance(enchantment, enchantment.value().getMaxLevel())));
 				}
 			});
-			context.waitFor(client -> anvil(client).getMenu().getSlot(3 + 27).getItem().getItem() == Items.DIAMOND_SWORD);
+			context.waitFor(client -> anvil(client).getMenu().getSlot(3 + 27).getItem().has(DataComponents.CUSTOM_NAME));
+			// Put Excalibur in the anvil: the plan switches to it.
+			clickInAnvil(context, 8 + 8, 142 + 8);
+			context.waitFor(client -> !anvil(client).getMenu().getCarried().isEmpty());
+			clickInAnvil(context, 27 + 8, 47 + 8);
+			context.waitFor(client -> anvil(client).getMenu().getSlot(0).hasItem());
+			context.waitTicks(3);
+			check(context, client -> AnvilPlanner.INSTANCE.item().has(DataComponents.CUSTOM_NAME), "the plan should be for Excalibur now");
 			clickAt(context, bigPicker.clearX() + 5, bigPicker.buttonY() + 5);
 			clickAt(context, bigPicker.myBooksX() + 5, bigPicker.buttonY() + 5);
 			check(context, client -> AnvilPlanner.INSTANCE.steps().size() == 7 && AnvilPlanner.INSTANCE.totalLevels() == 49,
@@ -202,6 +216,10 @@ public class EnchantOrderClientGameTest implements FabricClientGameTest {
 			check(context, client -> allStepsDoneOnClient(), "every step should be done: " + context.computeOnClient(client -> AutoEnchanter.INSTANCE.message().getString()));
 			check(context, client -> client.player.experienceLevel == 60 - 49,
 					"the steps should cost exactly 49 levels, the player has " + context.computeOnClient(client -> client.player.experienceLevel) + " left");
+			// The enchantments went on Excalibur, and the spare sword was left alone.
+			check(context, client -> enchantmentsOnSword(client, true) == 7 && enchantmentsOnSword(client, false) == 0,
+					"Excalibur should have all 7 enchantments and the spare none, but they have "
+							+ context.computeOnClient(client -> enchantmentsOnSword(client, true) + " and " + enchantmentsOnSword(client, false)));
 			context.waitTicks(2);
 			context.takeScreenshot("10-auto-done");
 
@@ -218,6 +236,18 @@ public class EnchantOrderClientGameTest implements FabricClientGameTest {
 		context.getInput().pressKey(options -> options.keyUse);
 		context.waitForScreen(AnvilScreen.class);
 		context.waitTicks(5);
+	}
+
+	/** How many enchantments the named (or the plain) diamond sword in the inventory has, or -1 if it's not there. */
+	private static int enchantmentsOnSword(Minecraft client, boolean named) {
+		var inventory = client.player.getInventory();
+		for (int i = 0; i < inventory.getContainerSize(); i++) {
+			ItemStack stack = inventory.getItem(i);
+			if (stack.getItem() == Items.DIAMOND_SWORD && stack.has(DataComponents.CUSTOM_NAME) == named) {
+				return stack.getEnchantments().size();
+			}
+		}
+		return -1;
 	}
 
 	private static boolean allStepsDone(ClientGameTestContext context) {

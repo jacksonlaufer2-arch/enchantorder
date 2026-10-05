@@ -83,16 +83,17 @@ final class PickerPanel extends PanelWidget {
 			drawWrapped(graphics, Component.translatable("enchantorder.picker.none"), listLeft() + 3, listTop() + 4, rowWidth - 6, TEXT_DIM);
 		}
 
-		// Footer buttons.
+		// Footer buttons. Nothing here can be changed while the steps are being done automatically.
+		boolean locked = planner.isLocked();
 		boolean myBooksHovered = drawButton(graphics, myBooksX(), buttonY(), buttonWidth(), 16,
-				Component.translatable("enchantorder.button.my_books"), true, mouseX, mouseY);
+				Component.translatable("enchantorder.button.my_books"), !locked, mouseX, mouseY);
 		boolean clearHovered = drawButton(graphics, clearX(), buttonY(), buttonWidth(), 16,
-				Component.translatable("enchantorder.button.clear"), planner.hasSelection(), mouseX, mouseY);
+				Component.translatable("enchantorder.button.clear"), planner.hasSelection() && !locked, mouseX, mouseY);
 
 		// Tooltips.
-		if (myBooksHovered) {
+		if (myBooksHovered && !locked) {
 			tooltip(graphics, List.of(Component.translatable("enchantorder.button.my_books.tooltip")), mouseX, mouseY);
-		} else if (clearHovered && planner.hasSelection()) {
+		} else if (clearHovered && planner.hasSelection() && !locked) {
 			tooltip(graphics, List.of(Component.translatable("enchantorder.button.clear.tooltip")), mouseX, mouseY);
 		} else if (headerHovered) {
 			tooltip(graphics, List.of(planner.item().getHoverName(),
@@ -128,8 +129,8 @@ final class PickerPanel extends PanelWidget {
 		if (hasArrows(choice)) {
 			int level = planner.selectedLevel(choice);
 			int arrowColor = 0xFFFFFF55;
-			boolean overLeft = hovered && isOverLeftArrow(choice, mouseX, x, width);
-			boolean overRight = hovered && isOverRightArrow(mouseX, x, width);
+			boolean overLeft = hovered && !planner.isLocked() && isOverLeftArrow(choice, mouseX, x, width);
+			boolean overRight = hovered && !planner.isLocked() && isOverRightArrow(mouseX, x, width);
 			graphics.text(font, "<", leftArrowX(choice, x, width), y + 2, level > choice.minLevel() ? (overLeft ? TEXT : arrowColor) : TEXT_OFF, true);
 			graphics.text(font, ">", rightArrowX(x, width), y + 2, level < choice.maxLevel ? (overRight ? TEXT : arrowColor) : TEXT_OFF, true);
 			graphics.text(font, numeral, numeralRight(x, width) - font.width(numeral), y + 2, TEXT, true);
@@ -200,7 +201,8 @@ final class PickerPanel extends PanelWidget {
 				}
 			}
 			case SELECTED -> {
-				if (hasArrows(choice) && (isOverLeftArrow(choice, mouseX, listLeft(), rowWidth) || isOverRightArrow(mouseX, listLeft(), rowWidth))) {
+				if (hasArrows(choice) && !planner.isLocked()
+						&& (isOverLeftArrow(choice, mouseX, listLeft(), rowWidth) || isOverRightArrow(mouseX, listLeft(), rowWidth))) {
 					tooltip(graphics, List.of(Component.translatable("enchantorder.tooltip.levels")), mouseX, mouseY);
 				} else if (isNameCut(choice, rowWidth)) {
 					tooltip(graphics, List.of(name), mouseX, mouseY);
@@ -253,6 +255,9 @@ final class PickerPanel extends PanelWidget {
 	}
 
 	private boolean isClickable(Choice choice) {
+		if (planner.isLocked()) {
+			return false;
+		}
 		return choice.status() == Status.SELECTED || (choice.status() == Status.AVAILABLE && planner.canSelectMore());
 	}
 

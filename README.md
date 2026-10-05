@@ -24,6 +24,32 @@ It does the same job as the [Minecraft Enchantment Order Calculator](https://iam
 
 The order puts all the book-on-book steps first, so once the item goes in the first slot it can stay there until the end.
 
+## Let it do the steps for you (Auto)
+
+Tick the **Auto** box in the top right corner of the order panel. An **Apply** button shows up under the steps.
+
+![Auto mode halfway through: two steps done, step 3 in progress](docs/auto.png)
+
+1. Put the item in the anvil and tick your enchantments (**My books** is the quickest way).
+2. Click **Apply**. The mod shift-clicks the books and the item into the anvil and takes each result out, step by step, just like you would.
+   You can watch the steps tick off as it goes. A full sword takes a few seconds.
+
+Apply only works when:
+
+- every book the plan needs is in your inventory or hotbar (single-enchantment books at the levels you ticked; the off-hand doesn't count), and
+- you have enough levels for **all** the remaining steps, so it never stops halfway because you ran out.
+
+If something is missing, the button says so (for example "Need 49 levels" or "Missing books"). Hover over it to see exactly what.
+
+It only ever uses the exact item you planned with (same name, same damage), never a spare copy of it from your inventory.
+Before taking each result it checks that the anvil asks the price the plan says. If not, it stops before paying and tells you why under the steps.
+
+Clicking anywhere or pressing a key (or closing the anvil) stops it straight away. Nothing is lost: the plan remembers which steps are done,
+so you can click Apply again later to carry on. That includes when an anvil wears out and breaks halfway.
+The box stays ticked until you untick it, even after restarting the game.
+
+Apply waits until you click it, so it never starts while you're still ticking enchantments.
+
 ## How it works out the order
 
 Every time you use an anvil it costs:
@@ -40,8 +66,8 @@ The mod tries every possible way of pairing up the books and keeps the one with 
 If two orders cost the same, it picks the one that leaves the lowest work penalty on the finished item, then the one with the smallest single steps.
 The enchantment data (max levels, book costs, which ones clash) comes straight from the game, so enchantments added by data packs or other mods work too.
 
-It assumes your books are fresh, with no work penalty. That's the case for books from an enchanting table, a librarian or a chest, but not for books you combined in an anvil yourself.
-Renaming the item also costs 1 extra level on that step.
+If a book in your inventory has been through an anvil before (it has its own work penalty), the plan uses that book's real penalty, so the costs match what the anvil asks for.
+Books you don't have yet are assumed to be fresh. Renaming the item also costs 1 extra level on that step.
 
 ## Installing
 
@@ -49,7 +75,7 @@ Renaming the item also costs 1 extra level on that step.
 2. Put **Fabric API** (for 26.2) in your `mods` folder.
 3. Put `enchantorder-1.0.0.jar` in your `mods` folder too.
 
-The mod only changes your game window, so it works on any server, including ones without the mod.
+The mod only changes your game window, so it works on any server, including ones without the mod. Auto mode just sends the same clicks you would make yourself.
 
 ### Getting the jar
 
@@ -72,10 +98,12 @@ If the panels look squashed, your window is too narrow for them at your GUI scal
 | `src/client/java/com/enchantorder/client/PickerPanel.java` | The left panel (picking enchantments) |
 | `src/client/java/com/enchantorder/client/OrderPanel.java` | The right panel (the order) |
 | `src/client/java/com/enchantorder/client/PanelWidget.java` | The grey panel look, scrolling and buttons shared by both panels |
+| `src/client/java/com/enchantorder/client/AutoEnchanter.java` | Auto mode: does the anvil steps for you with shift-clicks, and stops if anything looks wrong |
+| `src/client/java/com/enchantorder/client/EnchantOrderSettings.java` | Remembers whether the Auto box is ticked (in `config/enchantorder.properties`) |
 | `src/client/resources/assets/enchantorder/lang/en_us.json` | All the text the mod shows |
 | `src/gametest/java/com/enchantorder/client/EnchantOrderClientGameTest.java` | An automatic test that starts the real game, opens an anvil and clicks through the panels. GitHub runs it on every push and saves screenshots (the **Screenshots** artifact) |
 
 ## Ideas for later
 
-- Do the steps for you: move the right items into the anvil and take the result, one click per step.
-- Use the books you actually have, including combined books with their own work penalty.
+- Use books with more than one enchantment on them as a starting point.
+- Plan with a lower-level book you have (two Sharpness IV books make a Sharpness V).

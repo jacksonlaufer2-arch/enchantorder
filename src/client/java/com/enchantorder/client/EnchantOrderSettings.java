@@ -33,8 +33,11 @@ public final class EnchantOrderSettings {
 		autoApply = value;
 		Properties properties = load();
 		properties.setProperty(AUTO_APPLY, Boolean.toString(value));
-		try (Writer writer = Files.newBufferedWriter(FILE)) {
-			properties.store(writer, "Enchant Order settings");
+		try {
+			Files.createDirectories(FILE.getParent());
+			try (Writer writer = Files.newBufferedWriter(FILE)) {
+				properties.store(writer, "Enchant Order settings");
+			}
 		} catch (IOException e) {
 			LOGGER.warn("Couldn't save {}", FILE, e);
 		}
@@ -45,8 +48,10 @@ public final class EnchantOrderSettings {
 		if (Files.exists(FILE)) {
 			try (Reader reader = Files.newBufferedReader(FILE)) {
 				properties.load(reader);
-			} catch (IOException e) {
+			} catch (IOException | IllegalArgumentException e) {
+				// IllegalArgumentException means a broken escape code in a hand-edited file.
 				LOGGER.warn("Couldn't read {}", FILE, e);
+				properties.clear();
 			}
 		}
 		return properties;

@@ -2,14 +2,20 @@ package com.enchantorder.client;
 
 import java.util.List;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenKeyboardEvents;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
 import net.minecraft.client.gui.screens.inventory.AnvilScreen;
+import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.inventory.AnvilMenu;
+import org.lwjgl.glfw.GLFW;
 
-/** Puts the two panels next to an open anvil and passes mouse clicks and scrolling to them. */
+/**
+ * Puts the two panels next to an open anvil and passes mouse clicks and scrolling to them. While the
+ * steps are being done automatically, any click or key press stops that instead.
+ */
 public final class AnvilOverlay {
 	// Size of the anvil window itself, in GUI pixels.
 	private static final int ANVIL_WIDTH = 176;
@@ -22,6 +28,8 @@ public final class AnvilOverlay {
 	private final AnvilMenu menu;
 	private final List<PanelWidget> panels;
 	private boolean pressedOnPanel;
+	// A key press that stopped the automatic steps: its typed letter mustn't end up in the name box.
+	private boolean swallowTyping;
 
 	private AnvilOverlay(AnvilScreen screen) {
 		menu = screen.getMenu();
@@ -51,10 +59,29 @@ public final class AnvilOverlay {
 			AnvilPlanner.INSTANCE.sync(overlay.menu);
 			AutoEnchanter.INSTANCE.tick(overlay.menu);
 		});
-		ScreenEvents.remove(screen).register(s -> AutoEnchanter.INSTANCE.stop(Component.translatable("enchantorder.auto.closed"), true));
+		ScreenEvents.remove(screen).register(s -> AutoEnchanter.INSTANCE.anvilClosed(overlay.menu));
 		ScreenMouseEvents.allowMouseClick(screen).register((s, event) -> overlay.allowClick(event));
 		ScreenMouseEvents.allowMouseRelease(screen).register((s, event) -> overlay.allowRelease());
 		ScreenMouseEvents.allowMouseScroll(screen).register((s, mouseX, mouseY, scrollX, scrollY) -> overlay.allowScroll(mouseX, mouseY, scrollY));
+		ScreenKeyboardEvents.allowKeyPress(screen).register((s, event) -> overlay.allowKeyPress(event));
+		ScreenKeyboardEvents.allowCharType(screen).register((s, event) -> !overlay.swallowTyping && !AutoEnchanter.INSTANCE.isRunning());
+		ScreenKeyboardEvents.allowKeyRelease(screen).register((s, event) -> {
+			overlay.swallowTyping = false;
+			return true;
+		});
+	}
+
+	/**
+	 * While the steps are being done automatically, a key press stops that (and does nothing else, so it
+	 * can't type into the anvil's name box). Escape still closes the anvil, which stops it too.
+	 */
+	private boolean allowKeyPress(KeyEvent event) {
+		if (!AutoEnchanter.INSTANCE.isRunning() || event.key() == GLFW.GLFW_KEY_ESCAPE) {
+			return true;
+		}
+		AutoEnchanter.INSTANCE.stop(Component.translatable("enchantorder.auto.stopped"), false);
+		swallowTyping = true;
+		return false;
 	}
 
 	private PanelWidget panelAt(double mouseX, double mouseY) {

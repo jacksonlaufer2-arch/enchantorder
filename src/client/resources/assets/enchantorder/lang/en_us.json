@@ -28,9 +28,10 @@
 	"enchantorder.auto.apply": "Apply (%s lvl)",
 	"enchantorder.auto.apply.tooltip": "Do every step for you. Costs %s levels.",
 	"enchantorder.auto.stop": "Stop (step %s/%s)",
-	"enchantorder.auto.stop.tooltip": "Click anywhere to stop",
+	"enchantorder.auto.stop.tooltip": "Click anywhere or press a key to stop",
 	"enchantorder.auto.missing.brief": "Missing books",
-	"enchantorder.auto.missing": "Missing: %s",
+	"enchantorder.auto.missing_item.brief": "Missing item",
+	"enchantorder.auto.missing": "Not in your inventory or hotbar: %s",
 	"enchantorder.auto.levels.brief": "Need %s levels",
 	"enchantorder.auto.levels": "You need %s levels to do this (you have %s)",
 	"enchantorder.auto.holding.brief": "Hands full",
@@ -44,7 +45,9 @@
 	"enchantorder.auto.lost": "Stopped: can't find %s.",
 	"enchantorder.auto.no_result": "Stopped: the anvil won't combine these.",
 	"enchantorder.auto.wrong_result": "Stopped: the anvil made something other than planned.",
-	"enchantorder.auto.too_expensive": "Stopped: this step is too expensive.",
+	"enchantorder.auto.too_expensive": "Stopped: step %s would cost %s levels, which is too expensive.",
+	"enchantorder.auto.cost_changed": "Stopped: step %s costs %s levels, not %s as planned.",
+	"enchantorder.auto.undone": "Stopped: the server undid a step.",
 	"enchantorder.auto.not_enough": "Stopped: the rest needs %s levels and you have %s.",
 	"enchantorder.auto.stuck": "Stopped: the items won't move. Is your inventory full?"
 }

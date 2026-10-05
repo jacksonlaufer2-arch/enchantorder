@@ -4,6 +4,8 @@ import com.enchantorder.plan.AnvilOptimizer;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientPacketListener;
+import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
@@ -19,12 +21,14 @@ import net.minecraft.world.item.ItemStack;
 public final class AutoEnchanter {
 	public static final AutoEnchanter INSTANCE = new AutoEnchanter();
 
-	// Wait a few ticks after each click, so the server keeps up and you can watch it happen.
+	// Wait a few ticks after each click (longer on a laggy server), so the server keeps up and you can
+	// watch it happen.
 	private static final int TICKS_BETWEEN_CLICKS = 3;
 	// A step takes at most 5 clicks (2 to clear the anvil, 2 to fill it, 1 to take the result).
 	// Needing many more means the clicks aren't working, so give up instead of clicking forever.
-	private static final int MAX_CLICKS_PER_STEP = 12;
-	// How many times to look for the anvil's result before giving up (about 4 seconds).
+	private static final int CLICKS_PER_STEP = 5;
+	private static final int SPARE_CLICKS = 8;
+	// How many times to look at the anvil's result and price before giving up (about 4 seconds).
 	private static final int MAX_RESULT_CHECKS = 40;
 
 	private final AnvilPlanner planner = AnvilPlanner.INSTANCE;
@@ -33,9 +37,11 @@ public final class AutoEnchanter {
 	private List<AnvilPlanner.Step> steps = List.of();
 	private int startLevel;
 	private int wait;
-	private int stepInProgress;
+	private int furthestStep;
 	private int clicks;
 	private int resultChecks;
+	private int lastCost;
+	private boolean lastResultEmpty;
 	private Component message = Component.empty();
 	private boolean messageIsProblem;
 	private List<AnvilPlanner.Step> messageSteps = List.of();
@@ -72,13 +78,14 @@ public final class AutoEnchanter {
 		if (player == null || planner.currentStep() < 0) {
 			return problems;
 		}
-		List<Component> missing = planner.missingThings(menu);
+		List<AnvilPlanner.Need> missing = planner.missingThings(menu);
 		if (!missing.isEmpty()) {
 			MutableComponent list = Component.empty();
-			for (Component thing : missing) {
-				list.append(list.getSiblings().isEmpty() ? Component.empty() : Component.literal(", ")).append(thing);
+			for (AnvilPlanner.Need thing : missing) {
+				list.append(list.getSiblings().isEmpty() ? Component.empty() : Component.literal(", ")).append(planner.describe(thing));
 			}
-			problems.add(new Problem(Component.translatable("enchantorder.auto.missing.brief"),
+			boolean itemMissing = missing.stream().anyMatch(AnvilPlanner.Need::isItem);
+			problems.add(new Problem(Component.translatable(itemMissing ? "enchantorder.auto.missing_item.brief" : "enchantorder.auto.missing.brief"),
 					Component.translatable("enchantorder.auto.missing", list)));
 		}
 		int needed = planner.remainingLevels();
@@ -95,7 +102,7 @@ public final class AutoEnchanter {
 
 	public void start(AnvilMenu menu) {
 		LocalPlayer player = Minecraft.getInstance().player;
-		if (running || player == null || !problems(menu).isEmpty()) {
+		if (running || player == null || planner.currentStep() < 0 || !problems(menu).isEmpty()) {
 			return;
 		}
 		running = true;
@@ -103,9 +110,35 @@ public final class AutoEnchanter {
 		steps = planner.steps();
 		startLevel = player.experienceLevel;
 		wait = 0;
-		stepInProgress = -1;
+		furthestStep = planner.currentStep();
+		clicks = 0;
+		resultChecks = 0;
 		say(Component.translatable("enchantorder.auto.working"), false);
 		planner.setLocked(true);
+	}
+
+	/**
+	 * Called when the anvil screen closes while the steps are being done. If it closed because the anvil
+	 * broke on the very last step, that still counts as done.
+	 */
+	public void anvilClosed(AnvilMenu menu) {
+		if (!running) {
+			return;
+		}
+		if (menu == this.menu) {
+			planner.sync(menu);
+		}
+		if (planner.steps() == steps && planner.currentStep() < 0) {
+			finish();
+		} else {
+			stop(Component.translatable("enchantorder.auto.closed"), true);
+		}
+	}
+
+	private void finish() {
+		LocalPlayer player = Minecraft.getInstance().player;
+		int used = player == null || planner.isCreative() ? 0 : Math.max(0, startLevel - player.experienceLevel);
+		stop(Component.translatable("enchantorder.auto.done", used), false);
 	}
 
 	public void stop(Component why, boolean problem) {
@@ -139,26 +172,26 @@ public final class AutoEnchanter {
 			stop(Component.translatable("enchantorder.auto.plan_changed"), true);
 			return;
 		}
+		int current = planner.currentStep();
+		int reached = current < 0 ? steps.size() : current;
+		if (reached < furthestStep) {
+			// A step that was done isn't any more: the server must have said no to a click.
+			stop(Component.translatable("enchantorder.auto.undone"), true);
+			return;
+		}
+		furthestStep = reached;
 		if (wait > 0) {
 			wait--;
 			return;
 		}
-		int current = planner.currentStep();
 		if (current < 0) {
-			int used = startLevel - player.experienceLevel;
-			stop(Component.translatable("enchantorder.auto.done", planner.isCreative() ? 0 : Math.max(0, used)), false);
+			finish();
 			return;
 		}
 		if (!menu.getCarried().isEmpty()) {
 			// We never leave anything on the cursor, so someone else put it there.
 			stop(Component.translatable("enchantorder.auto.holding_stop"), true);
 			return;
-		}
-
-		if (current != stepInProgress) {
-			stepInProgress = current;
-			clicks = 0;
-			resultChecks = 0;
 		}
 
 		AnvilPlanner.Step step = steps.get(current);
@@ -186,32 +219,39 @@ public final class AutoEnchanter {
 			return;
 		}
 
-		// Both are in: check the anvil's result and price, then take it.
+		// Both are in: check the anvil's result and price, then take it. The price comes from the server
+		// and can lag a moment behind the slots, so only go by it once it has stayed the same for two
+		// checks in a row.
 		ItemStack result = menu.getSlot(AnvilMenu.RESULT_SLOT).getItem();
 		int cost = menu.getCost();
-		if (result.isEmpty() || cost <= 0) {
-			if (++resultChecks > MAX_RESULT_CHECKS) {
+		boolean settled = resultChecks > 0 && cost == lastCost && result.isEmpty() == lastResultEmpty;
+		lastCost = cost;
+		lastResultEmpty = result.isEmpty();
+		resultChecks++;
+		boolean survival = !planner.isCreative();
+		if (settled && survival && cost >= AnvilOptimizer.TOO_EXPENSIVE) {
+			// In survival the anvil shows no result at all for 40 levels or more.
+			stop(Component.translatable("enchantorder.auto.too_expensive", step.number, cost), true);
+			return;
+		}
+		if (!settled || result.isEmpty() || cost != step.cost) {
+			if (resultChecks < MAX_RESULT_CHECKS + latencyTicks()) {
+				wait = 1;
+			} else if (result.isEmpty() || cost <= 0) {
 				stop(Component.translatable("enchantorder.auto.no_result"), true);
+			} else {
+				// The anvil wants a different price than planned, so the plan no longer fits what you have.
+				stop(Component.translatable("enchantorder.auto.cost_changed", step.number, cost, step.cost), true);
 			}
-			wait = 1;
 			return;
 		}
 		if (!planner.matches(result, step.makes())) {
 			stop(Component.translatable("enchantorder.auto.wrong_result"), true);
 			return;
 		}
-		if (!planner.isCreative()) {
-			if (cost >= AnvilOptimizer.TOO_EXPENSIVE) {
-				stop(Component.translatable("enchantorder.auto.too_expensive"), true);
-				return;
-			}
-			// The anvil might ask for a little more than planned (for example if the item has been in an
-			// anvil more often than the one you planned with). Only carry on if the rest is still affordable.
-			int stillNeeded = cost + planner.remainingLevels() - step.cost;
-			if (player.experienceLevel < stillNeeded) {
-				stop(Component.translatable("enchantorder.auto.not_enough", stillNeeded, player.experienceLevel), true);
-				return;
-			}
+		if (survival && player.experienceLevel < planner.remainingLevels()) {
+			stop(Component.translatable("enchantorder.auto.not_enough", planner.remainingLevels(), player.experienceLevel), true);
+			return;
 		}
 		click(AnvilMenu.RESULT_SLOT);
 	}
@@ -228,12 +268,26 @@ public final class AutoEnchanter {
 
 	/** Shift-clicks a slot, like holding shift and clicking it. */
 	private void click(int slot) {
-		if (++clicks > MAX_CLICKS_PER_STEP) {
+		if (++clicks > steps.size() * CLICKS_PER_STEP + SPARE_CLICKS) {
 			stop(Component.translatable("enchantorder.auto.stuck"), true);
 			return;
 		}
 		Minecraft minecraft = Minecraft.getInstance();
 		minecraft.gameMode.handleContainerInput(menu.containerId, slot, 0, ContainerInput.QUICK_MOVE, minecraft.player);
-		wait = TICKS_BETWEEN_CLICKS;
+		resultChecks = 0;
+		// Give the server time to answer before the next click, so that if it said no (or the anvil broke)
+		// we find out before doing anything else.
+		wait = Math.max(TICKS_BETWEEN_CLICKS, latencyTicks() + 2);
+	}
+
+	/** Your ping, in ticks. */
+	private static int latencyTicks() {
+		Minecraft minecraft = Minecraft.getInstance();
+		ClientPacketListener connection = minecraft.getConnection();
+		if (connection == null || minecraft.player == null) {
+			return 0;
+		}
+		PlayerInfo info = connection.getPlayerInfo(minecraft.player.getUUID());
+		return info == null ? 0 : Math.clamp(info.getLatency() / 50, 0, 40);
 	}
 }
