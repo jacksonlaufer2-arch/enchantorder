@@ -32,6 +32,7 @@ public final class AnvilOverlay {
 	// when held down so it repeats), and its letter doesn't end up in the name box.
 	private boolean stopKeyHeld;
 	private int stopKey;
+	private boolean swallowTyping;
 
 	private AnvilOverlay(AnvilScreen screen) {
 		menu = screen.getMenu();
@@ -66,10 +67,11 @@ public final class AnvilOverlay {
 		ScreenMouseEvents.allowMouseRelease(screen).register((s, event) -> overlay.allowRelease());
 		ScreenMouseEvents.allowMouseScroll(screen).register((s, mouseX, mouseY, scrollX, scrollY) -> overlay.allowScroll(mouseX, mouseY, scrollY));
 		ScreenKeyboardEvents.allowKeyPress(screen).register((s, event) -> overlay.allowKeyPress(event));
-		ScreenKeyboardEvents.allowCharType(screen).register((s, event) -> !overlay.stopKeyHeld && !AutoEnchanter.INSTANCE.isRunning());
+		ScreenKeyboardEvents.allowCharType(screen).register((s, event) -> !overlay.swallowTyping && !AutoEnchanter.INSTANCE.isRunning());
 		ScreenKeyboardEvents.allowKeyRelease(screen).register((s, event) -> {
 			if (event.key() == overlay.stopKey) {
 				overlay.stopKeyHeld = false;
+				overlay.swallowTyping = false;
 			}
 			return true;
 		});
@@ -81,14 +83,20 @@ public final class AnvilOverlay {
 	 */
 	private boolean allowKeyPress(KeyEvent event) {
 		if (stopKeyHeld && event.key() == stopKey) {
+			swallowTyping = true; // A repeat: its letter mustn't be typed either.
 			return false;
 		}
-		if (!AutoEnchanter.INSTANCE.isRunning() || event.key() == GLFW.GLFW_KEY_ESCAPE) {
+		swallowTyping = false; // Any other key types as normal.
+		// Shift, Ctrl, Alt and the Windows/Command keys don't stop it: they may already be held down when
+		// Apply is clicked, and then the system repeats them.
+		boolean modifier = event.key() >= GLFW.GLFW_KEY_LEFT_SHIFT && event.key() <= GLFW.GLFW_KEY_RIGHT_SUPER;
+		if (!AutoEnchanter.INSTANCE.isRunning() || event.key() == GLFW.GLFW_KEY_ESCAPE || modifier) {
 			return true;
 		}
 		AutoEnchanter.INSTANCE.stop(Component.translatable("enchantorder.auto.stopped"), false);
 		stopKeyHeld = true;
 		stopKey = event.key();
+		swallowTyping = true;
 		return false;
 	}
 

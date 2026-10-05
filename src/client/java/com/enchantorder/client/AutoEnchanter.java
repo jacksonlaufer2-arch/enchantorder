@@ -10,6 +10,7 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.protocol.game.ServerboundRenameItemPacket;
 import net.minecraft.util.StringUtil;
 import net.minecraft.world.inventory.AnvilMenu;
 import net.minecraft.world.inventory.ContainerInput;
@@ -44,7 +45,6 @@ public final class AutoEnchanter {
 	private int resultChecks;
 	private int lastCost;
 	private boolean lastResultEmpty;
-	private boolean resetNameBox;
 	private Component message = Component.empty();
 	private boolean messageIsProblem;
 	private List<AnvilPlanner.Step> messageSteps = List.of();
@@ -84,14 +84,11 @@ public final class AutoEnchanter {
 		// The exact copy of the item you planned with has to be there. If it has been used or renamed since,
 		// putting it in the anvil makes the plan follow it (you may have spares, so it can't just guess).
 		AnvilPlanner.Need itemNext = planner.itemNeededNext();
-		ItemStack inAnvil = menu.getSlot(AnvilMenu.INPUT_SLOT).getItem();
-		if (itemNext != null && !planner.owns(menu, itemNext)) {
-			if (planner.looksLike(inAnvil, itemNext)) {
-				problems.add(new Problem(Component.translatable("enchantorder.auto.penalty.brief"), Component.translatable("enchantorder.auto.penalty")));
-			} else {
-				problems.add(new Problem(Component.translatable("enchantorder.auto.put_in.brief"),
-						Component.translatable("enchantorder.auto.put_in", planner.item().getHoverName())));
-			}
+		if (planner.penaltyChanged(menu)) {
+			problems.add(new Problem(Component.translatable("enchantorder.auto.penalty.brief"), Component.translatable("enchantorder.auto.penalty")));
+		} else if (itemNext != null && !planner.owns(menu, itemNext)) {
+			problems.add(new Problem(Component.translatable("enchantorder.auto.put_in.brief"),
+					Component.translatable("enchantorder.auto.put_in", planner.item().getHoverName())));
 		}
 		if (!anvilKeepsName(planner.item())) {
 			problems.add(new Problem(Component.translatable("enchantorder.auto.name.brief"), Component.translatable("enchantorder.auto.name")));
@@ -141,9 +138,25 @@ public final class AutoEnchanter {
 		furthestStep = planner.currentStep();
 		clicks = 0;
 		resultChecks = 0;
-		resetNameBox = true;
+		clearNameBox(menu);
 		say(Component.translatable("enchantorder.auto.working"), false);
 		planner.setLocked(true);
+	}
+
+	/**
+	 * Undoes anything typed in the anvil's name box, so the item isn't renamed for an extra level. This is
+	 * what the anvil screen itself does when an item goes in.
+	 */
+	private static void clearNameBox(AnvilMenu menu) {
+		ItemStack item = menu.getSlot(AnvilMenu.INPUT_SLOT).getItem();
+		LocalPlayer player = Minecraft.getInstance().player;
+		if (item.isEmpty() || player == null) {
+			return; // The box resets itself when an item goes in.
+		}
+		String name = item.has(DataComponents.CUSTOM_NAME) ? item.getHoverName().getString() : "";
+		if (menu.setItemName(name)) {
+			player.connection.send(new ServerboundRenameItemPacket(name));
+		}
 	}
 
 	/**
@@ -221,16 +234,6 @@ public final class AutoEnchanter {
 			// We never leave anything on the cursor, so someone else put it there.
 			stop(Component.translatable("enchantorder.auto.holding_stop"), true);
 			return;
-		}
-
-		if (resetNameBox) {
-			// Take the item out once (it goes back in when its step comes). Putting it back resets the
-			// anvil's name box, so a name typed there before doesn't rename it for an extra level.
-			resetNameBox = false;
-			if (!menu.getSlot(AnvilMenu.INPUT_SLOT).getItem().isEmpty()) {
-				click(AnvilMenu.INPUT_SLOT);
-				return;
-			}
 		}
 
 		AnvilPlanner.Step step = steps.get(current);

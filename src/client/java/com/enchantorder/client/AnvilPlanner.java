@@ -316,7 +316,7 @@ public final class AnvilPlanner {
 	 * if it has been used or renamed since, or made with a book that had a different work penalty. This is
 	 * what ticking off steps goes by, so progress isn't lost.
 	 */
-	public boolean looksLike(ItemStack stack, Need need) {
+	private boolean looksLike(ItemStack stack, Need need) {
 		if (stack.isEmpty()) {
 			return false;
 		}
@@ -326,6 +326,38 @@ public final class AnvilPlanner {
 		}
 		ItemEnchantments stored = stack.get(DataComponents.STORED_ENCHANTMENTS);
 		return stored != null && sameEnchantments(stored, need.enchantments());
+	}
+
+	/**
+	 * True if the stack is what the step made (or something with the same enchantments, for a book). An item
+	 * only counts if it's the planned copy, so a spare that happens to have the same enchantments doesn't.
+	 */
+	private boolean isMadeBy(ItemStack stack, Step step) {
+		return looksLike(stack, step.makes) && (!step.makes.isItem() || sameApartFromEnchanting(stack, item));
+	}
+
+	/**
+	 * True if something the remaining steps need is there, but with a different work penalty than planned:
+	 * the item was repaired, or a step was done with another copy of a book. The prices of the remaining
+	 * steps are then off.
+	 */
+	public boolean penaltyChanged(AnvilMenu menu) {
+		List<ItemStack> owned = ownedStacks(menu);
+		for (Step step : steps) {
+			if (step.done) {
+				continue;
+			}
+			for (Need need : List.of(step.firstNeeds, step.secondNeeds)) {
+				if (need.isItem() && need.startingThing()) {
+					continue; // Before any step, putting the item in the anvil simply plans again for it.
+				}
+				if (owned.stream().noneMatch(stack -> matches(stack, need))
+						&& owned.stream().anyMatch(stack -> looksLike(stack, need) && (!need.isItem() || sameApartFromEnchanting(stack, item)))) {
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	/** True if the two stacks are the same apart from their enchantments and work penalty. */
@@ -448,11 +480,15 @@ public final class AnvilPlanner {
 		int newLevel = Math.clamp(level + change, choice.minLevel(), choice.maxLevel);
 		if (newLevel != level) {
 			selected.put(choice.enchantment, newLevel);
-			// The book you have was for the old level, so its penalty doesn't count any more.
-			bookPenalties.remove(choice.enchantment);
-			usedBooks.remove(choice.enchantment);
+			forgetBook(choice.enchantment);
 			recalculate();
 		}
+	}
+
+	/** After an enchantment's level changes: the book you had was for the old level, so forget its penalty. */
+	private void forgetBook(Holder<Enchantment> enchantment) {
+		bookPenalties.remove(enchantment);
+		usedBooks.remove(enchantment);
 	}
 
 	public void clearSelection() {
@@ -489,6 +525,7 @@ public final class AnvilPlanner {
 				refreshStatuses();
 				if (choice.status == Status.SELECTED && level > selected.get(choice.enchantment)) {
 					selected.put(choice.enchantment, level);
+					forgetBook(choice.enchantment);
 					changed = true;
 				} else if (choice.status == Status.AVAILABLE && canSelectMore()) {
 					selected.put(choice.enchantment, level);
@@ -766,8 +803,9 @@ public final class AnvilPlanner {
 		for (int i = steps.size() - 1; i >= 0; i--) {
 			Step step = steps.get(i);
 			// A step also counts as done once the thing it made has been used up in a later step.
-			step.done = (step.usedBy >= 0 && steps.get(step.usedBy).done) || owned.stream().anyMatch(stack -> looksLike(stack, step.makes));
+			step.done = (step.usedBy >= 0 && steps.get(step.usedBy).done) || owned.stream().anyMatch(stack -> isMadeBy(stack, step));
 		}
+		usedBooks.clear();
 		bookSteps.forEach((enchantment, step) -> {
 			if (steps.get(step).done) {
 				usedBooks.add(enchantment);

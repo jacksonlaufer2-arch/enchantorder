@@ -134,14 +134,20 @@ final class OrderPanel extends PanelWidget {
 		} else if (!steps.isEmpty()) {
 			int footerY = getBottom() - FOOTER + 7;
 			boolean allDone = planner.currentStep() < 0;
+			// Shown in red if something from an earlier step has another work penalty than planned.
+			boolean pricesOff = !allDone && planner.penaltyChanged(menu);
 			Component footer = allDone
 					? Component.translatable("enchantorder.order.done")
 					: Component.translatable("enchantorder.order.total", planner.totalLevels());
-			graphics.text(font, fit(footer.getString(), getWidth() - 14), getX() + 7, footerY, allDone ? ALL_DONE : LABEL, false);
+			graphics.text(font, fit(footer.getString(), getWidth() - 14), getX() + 7, footerY, allDone ? ALL_DONE : pricesOff ? TOO_HIGH : LABEL, false);
 			if (isInside(mouseX, mouseY, getX(), footerY - 4, getWidth(), FOOTER - 2)) {
-				tooltip(graphics, List.of(
+				List<Component> lines = new ArrayList<>(List.of(
 						Component.translatable("enchantorder.order.total", planner.totalLevels()),
-						Component.translatable("enchantorder.tooltip.work_penalty_after", planner.finalWorkPenalty())), mouseX, mouseY);
+						Component.translatable("enchantorder.tooltip.work_penalty_after", planner.finalWorkPenalty())));
+				if (pricesOff) {
+					lines.add(Component.translatable("enchantorder.order.prices_off").withStyle(ChatFormatting.RED));
+				}
+				tooltip(graphics, lines, mouseX, mouseY);
 			}
 		}
 

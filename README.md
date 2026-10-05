@@ -45,6 +45,8 @@ It only ever uses the exact item you planned with, never a spare copy of it from
 If you've used or renamed the item since you planned, the button says "Put item in anvil": do that, and the plan follows it.
 Before taking each result it checks that the anvil asks the price the plan says. If not, it stops before paying and tells you why under the steps.
 Anything typed in the anvil's name box is cleared first, so it never renames your item for an extra level.
+If the item was repaired, or you did a step by hand with a different copy of a book, the planned prices no longer match:
+the total turns red, and the button says "Wrong work penalty" instead of letting Auto start.
 
 Clicking anywhere or pressing a key (or closing the anvil) stops it straight away. Nothing is lost: the plan remembers which steps are done,
 so you can click Apply again later to carry on. That includes when an anvil wears out and breaks halfway.
