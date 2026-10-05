@@ -4,6 +4,7 @@ import com.enchantorder.plan.AnvilOptimizer;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.inventory.AnvilScreen;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.player.LocalPlayer;
@@ -149,7 +150,13 @@ public final class AutoEnchanter {
 	 */
 	private static void clearNameBox(AnvilMenu menu) {
 		ItemStack item = menu.getSlot(AnvilMenu.INPUT_SLOT).getItem();
-		LocalPlayer player = Minecraft.getInstance().player;
+		Minecraft minecraft = Minecraft.getInstance();
+		if (minecraft.gui.screen() instanceof AnvilScreen screen && screen.getMenu() == menu) {
+			// Let the screen do it, so the box shows the item's own name again too.
+			screen.slotChanged(menu, AnvilMenu.INPUT_SLOT, item);
+			return;
+		}
+		LocalPlayer player = minecraft.player;
 		if (item.isEmpty() || player == null) {
 			return; // The box resets itself when an item goes in.
 		}

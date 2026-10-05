@@ -177,6 +177,11 @@ public final class AnvilPlanner {
 	// has been used up already (their penalty is then kept, whatever other copies you have).
 	private Map<Holder<Enchantment>, Integer> bookSteps = Map.of();
 	private final Set<Holder<Enchantment>> usedBooks = new HashSet<>();
+	// The single book for each ticked enchantment, as the plan uses it.
+	private Map<Holder<Enchantment>, Need> singleBooks = Map.of();
+	// When you enchant another copy of the item the same way, how many finished copies (of each item
+	// state) you already had, so those don't count as this run's steps being done.
+	private final Map<Need, Integer> alreadyHad = new HashMap<>();
 	// True while the anvil steps are being done automatically: the plan must not change under it.
 	private boolean locked;
 
@@ -328,12 +333,34 @@ public final class AnvilPlanner {
 		return stored != null && sameEnchantments(stored, need.enchantments());
 	}
 
+	/** True if you have what the step makes. */
+	private boolean isMade(Step step, List<ItemStack> owned) {
+		if (step.makes.isItem()) {
+			long count = countMade(step, owned);
+			// Some of the copies you had before this run may have gone since.
+			alreadyHad.computeIfPresent(step.makes, (need, had) -> (int) Math.min(had, count));
+			return count > alreadyHad.getOrDefault(step.makes, 0);
+		}
+		if (owned.stream().anyMatch(stack -> matches(stack, step.makes))) {
+			return true;
+		}
+		// A book with the same enchantments but another work penalty (made with another copy of a book)
+		// counts too, but only once one of its single books is gone: otherwise it was there all along.
+		return owned.stream().anyMatch(stack -> looksLike(stack, step.makes))
+				&& step.makes.enchantments().keySet().stream().anyMatch(enchantment -> {
+					Need single = singleBooks.get(enchantment);
+					return single == null || owned.stream().noneMatch(stack -> matches(stack, single));
+				});
+	}
+
 	/**
-	 * True if the stack is what the step made (or something with the same enchantments, for a book). An item
-	 * only counts if it's the planned copy, so a spare that happens to have the same enchantments doesn't.
+	 * How many of the item, as an item step makes it, you have. Only the planned copy counts, so a spare that
+	 * happens to have the same enchantments doesn't. If the planned copy isn't there at all, it has been
+	 * used or renamed since, so then any copy with those enchantments counts.
 	 */
-	private boolean isMadeBy(ItemStack stack, Step step) {
-		return looksLike(stack, step.makes) && (!step.makes.isItem() || sameApartFromEnchanting(stack, item));
+	private long countMade(Step step, List<ItemStack> owned) {
+		boolean plannedCopyThere = owned.stream().anyMatch(stack -> sameApartFromEnchanting(stack, item));
+		return owned.stream().filter(stack -> looksLike(stack, step.makes) && (!plannedCopyThere || sameApartFromEnchanting(stack, item))).count();
 	}
 
 	/**
@@ -544,9 +571,11 @@ public final class AnvilPlanner {
 		selected.clear();
 		bookPenalties.clear();
 		usedBooks.clear();
+		alreadyHad.clear();
 		plan = null;
 		steps = List.of();
 		bookSteps = Map.of();
+		singleBooks = Map.of();
 		currentStep = -1;
 	}
 
@@ -557,6 +586,7 @@ public final class AnvilPlanner {
 		selected.clear();
 		bookPenalties.clear();
 		usedBooks.clear();
+		alreadyHad.clear();
 		for (Choice choice : choices) {
 			Integer level = previous.get(choice.enchantment);
 			// Skip what the item already has at the ticked level (or higher): that part is done.
@@ -697,6 +727,7 @@ public final class AnvilPlanner {
 		plan = null;
 		steps = List.of();
 		bookSteps = Map.of();
+		singleBooks = Map.of();
 		currentStep = -1;
 		bookPenalties.keySet().retainAll(selected.keySet());
 		usedBooks.retainAll(selected.keySet());
@@ -744,6 +775,7 @@ public final class AnvilPlanner {
 					node.stepCost(), need(node.left(), picked), need(node.right(), picked), need(node, picked)));
 		}
 		Map<Holder<Enchantment>, Integer> usesBook = new HashMap<>();
+		Map<Holder<Enchantment>, Need> singles = new HashMap<>();
 		for (int i = 0; i < plan.steps().size(); i++) {
 			AnvilOptimizer.Node node = plan.steps().get(i);
 			for (AnvilOptimizer.Node input : List.of(node.left(), node.right())) {
@@ -752,10 +784,12 @@ public final class AnvilPlanner {
 					result.get(from).usedBy = i;
 				} else if (!input.isItem()) {
 					usesBook.put(picked.get(input.book()).enchantment, i);
+					singles.put(picked.get(input.book()).enchantment, need(input, picked));
 				}
 			}
 		}
 		bookSteps = Map.copyOf(usesBook);
+		singleBooks = Map.copyOf(singles);
 		return List.copyOf(result);
 	}
 
@@ -800,10 +834,20 @@ public final class AnvilPlanner {
 			return;
 		}
 		List<ItemStack> owned = ownedStacks(menu);
-		for (int i = steps.size() - 1; i >= 0; i--) {
-			Step step = steps.get(i);
-			// A step also counts as done once the thing it made has been used up in a later step.
-			step.done = (step.usedBy >= 0 && steps.get(step.usedBy).done) || owned.stream().anyMatch(stack -> isMadeBy(stack, step));
+		markDone(owned);
+		boolean allDone = steps.stream().allMatch(step -> step.done);
+		Need fresh = steps.stream().map(step -> step.firstNeeds).filter(need -> need.isItem() && need.startingThing()).findFirst().orElse(null);
+		if (allDone && fresh != null && matches(menu.getSlot(AnvilMenu.INPUT_SLOT).getItem(), fresh)) {
+			// Everything is done, but a fresh copy of the item is in the anvil: you're enchanting another one
+			// the same way. The finished ones you already have don't count for this one.
+			for (Step step : steps) {
+				if (step.makes.isItem()) {
+					alreadyHad.put(step.makes, (int) countMade(step, owned));
+				}
+			}
+			markDone(owned);
+		} else if (allDone) {
+			alreadyHad.clear();
 		}
 		usedBooks.clear();
 		bookSteps.forEach((enchantment, step) -> {
@@ -816,6 +860,14 @@ public final class AnvilPlanner {
 				currentStep = i;
 				return;
 			}
+		}
+	}
+
+	private void markDone(List<ItemStack> owned) {
+		for (int i = steps.size() - 1; i >= 0; i--) {
+			Step step = steps.get(i);
+			// A step also counts as done once the thing it made has been used up in a later step.
+			step.done = (step.usedBy >= 0 && steps.get(step.usedBy).done) || isMade(step, owned);
 		}
 	}
 
