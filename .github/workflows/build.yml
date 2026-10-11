@@ -29,11 +29,13 @@ jobs:
           name: Artifacts
           path: build/libs/
 
-  # Starts the real game in a virtual screen, opens an anvil and clicks through the panels
-  # (see src/gametest). Screenshots of each step are saved as the "Screenshots" artifact.
+  # Starts the real game, opens an anvil and clicks through the panels (see src/gametest).
+  # Screenshots of each step are saved as the "Screenshots" artifact. Since 26.3 the game draws
+  # with Vulkan or OpenGL through SDL; like Fabric's own CI, it runs on Mesa's software Vulkan
+  # driver without a virtual screen.
   game-test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - name: checkout repository
         uses: actions/checkout@v6
@@ -44,10 +46,10 @@ jobs:
           distribution: 'microsoft'
       - name: make gradle wrapper executable
         run: chmod +x ./gradlew
-      - name: install virtual screen
-        run: sudo apt-get update -q && sudo apt-get install -y -q xvfb
+      - name: install software graphics driver
+        run: sudo apt-get update -q && sudo apt-get install -y -q mesa-vulkan-drivers
       - name: run game test
-        run: xvfb-run -a -s "-screen 0 1920x1080x24" ./gradlew runClientGameTest
+        run: ./gradlew runClientGameTest
       - name: capture screenshots
         if: always()
         uses: actions/upload-artifact@v7
