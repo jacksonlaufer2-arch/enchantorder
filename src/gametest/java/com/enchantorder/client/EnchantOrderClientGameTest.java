@@ -1,5 +1,6 @@
 package com.enchantorder.client;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import java.util.List;
 import java.util.Map;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
@@ -336,7 +337,7 @@ public class EnchantOrderClientGameTest implements FabricClientGameTest {
 
 	private static void clickAt(ClientGameTestContext context, int guiX, int guiY) {
 		moveTo(context, guiX, guiY);
-		context.getInput().pressMouse(0);
+		context.getInput().pressMouse(InputConstants.MOUSE_BUTTON_LEFT);
 		context.waitTick();
 	}
 

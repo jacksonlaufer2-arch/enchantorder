@@ -3,6 +3,7 @@ package com.enchantorder.client;
 import com.enchantorder.client.AnvilPlanner.Choice;
 import com.enchantorder.client.AnvilPlanner.Status;
 import com.enchantorder.plan.AnvilOptimizer;
+import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import java.util.List;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -227,7 +228,7 @@ final class PickerPanel extends PanelWidget {
 			planner.clearSelection();
 			return;
 		}
-		if (!inList(mouseX, mouseY) || button != 0) {
+		if (!inList(mouseX, mouseY) || button != InputConstants.MOUSE_BUTTON_LEFT) {
 			return;
 		}
 		int row = (int) Math.floor((mouseY - listTop() - 1 + scroll) / ROW);

@@ -2,6 +2,7 @@ package com.enchantorder.client;
 
 import com.enchantorder.client.AnvilPlanner.Part;
 import com.enchantorder.client.AnvilPlanner.Step;
+import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.platform.cursor.CursorTypes;
 import java.util.ArrayList;
 import java.util.List;
@@ -307,7 +308,7 @@ final class OrderPanel extends PanelWidget {
 
 	@Override
 	void click(double mouseX, double mouseY, int button) {
-		if (button != 0) {
+		if (button != InputConstants.MOUSE_BUTTON_LEFT) {
 			return;
 		}
 		if (isInside(mouseX, mouseY, autoBoxX() - 1, autoBoxY() - 1, autoWidth() + 2, BOX + 2)) {
