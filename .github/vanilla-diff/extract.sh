@@ -33,6 +33,9 @@ net/minecraft/core/component/PatchedDataComponentMap.java
 net/minecraft/util/StringUtil.java
 net/minecraft/tags/EnchantmentTags.java
 net/minecraft/network/protocol/game/ServerboundRenameItemPacket.java
+com/mojang/blaze3d/platform/InputConstants.java
+net/minecraft/client/KeyboardHandler.java
+net/minecraft/client/input/InputWithModifiers.java
 "
 for c in $classes; do
   found=0

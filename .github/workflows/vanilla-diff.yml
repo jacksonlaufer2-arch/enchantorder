@@ -29,3 +29,9 @@ jobs:
           bash .github/vanilla-diff/extract.sh 26.3 new
       - name: diff
         run: diff -ru old new || true
+      - name: key handling in 26.3
+        run: |
+          cat new/com/mojang/blaze3d/platform/InputConstants.java || true
+          cat new/net/minecraft/client/input/KeyEvent.java || true
+          cat new/net/minecraft/client/input/InputWithModifiers.java || true
+          grep -rln "org.lwjgl" new/ || true
