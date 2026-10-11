@@ -1,0 +1,23 @@
+# TEMPORARY: prints the available Fabric/Minecraft versions (removed once the port is done).
+name: versions
+on:
+  push:
+    paths:
+      - .github/workflows/versions.yml
+jobs:
+  versions:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: print versions
+        run: |
+          set -x
+          curl -sS https://meta.fabricmc.net/v2/versions/game | jq -r '.[0:25][] | "\(.version) stable=\(.stable)"'
+          curl -sS https://meta.fabricmc.net/v2/versions/loader | jq -r '.[0:10][] | "\(.version) stable=\(.stable)"'
+          curl -sS https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/maven-metadata.xml | grep -o '<version>[^<]*26\.[0-9][^<]*</version>' | tail -40
+          curl -sS https://maven.fabricmc.net/net/fabricmc/fabric-loom/net.fabricmc.fabric-loom.gradle.plugin/maven-metadata.xml | grep -o '<version>[^<]*</version>' | tail -25
+          curl -sS https://maven.fabricmc.net/net/fabricmc/fabric-loom/net.fabricmc.fabric-loom.gradle.plugin/maven-metadata.xml | grep -o '<latest>[^<]*</latest>\|<release>[^<]*</release>'
+          url=$(curl -sS https://piston-meta.mojang.com/mc/game/version_manifest_v2.json | jq -r '.versions[] | select(.id=="26.3") | .url')
+          echo "26.3 url: $url"
+          if [ -n "$url" ]; then curl -sS "$url" | jq '{id, type, releaseTime, javaVersion}'; fi
+          curl -sS https://piston-meta.mojang.com/mc/game/version_manifest_v2.json | jq -r '.latest, (.versions[0:12][] | "\(.id) \(.type) \(.releaseTime)")'
+          curl -sS "https://meta.fabricmc.net/v2/versions/loader/26.3" | jq -r '.[0:3][] | "\(.loader.version) \(.intermediary.version // "")"' || true
