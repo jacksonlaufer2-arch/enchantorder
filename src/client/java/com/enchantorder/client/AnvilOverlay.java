@@ -1,6 +1,8 @@
 package com.enchantorder.client;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import java.util.List;
+import java.util.Set;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenKeyboardEvents;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents;
@@ -10,7 +12,6 @@ import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.inventory.AnvilMenu;
-import org.lwjgl.glfw.GLFW;
 
 /**
  * Puts the two panels next to an open anvil and passes mouse clicks and scrolling to them. While the
@@ -24,6 +25,10 @@ public final class AnvilOverlay {
 	private static final int MIN_PANEL_WIDTH = 100;
 	private static final int MAX_PANEL_WIDTH = 180;
 	private static final int MAX_PANEL_HEIGHT = 222;
+	// Shift, Ctrl, Alt and the Windows/Command keys.
+	private static final Set<Integer> MODIFIER_KEYS = Set.of(InputConstants.KEY_LSHIFT, InputConstants.KEY_RSHIFT,
+			InputConstants.KEY_LCONTROL, InputConstants.KEY_RCONTROL, InputConstants.KEY_LALT, InputConstants.KEY_RALT,
+			InputConstants.KEY_LGUI, InputConstants.KEY_RGUI);
 
 	private final AnvilMenu menu;
 	private final List<PanelWidget> panels;
@@ -89,8 +94,7 @@ public final class AnvilOverlay {
 		swallowTyping = false; // Any other key types as normal.
 		// Shift, Ctrl, Alt and the Windows/Command keys don't stop it: they may already be held down when
 		// Apply is clicked, and then the system repeats them.
-		boolean modifier = event.key() >= GLFW.GLFW_KEY_LEFT_SHIFT && event.key() <= GLFW.GLFW_KEY_RIGHT_SUPER;
-		if (!AutoEnchanter.INSTANCE.isRunning() || event.key() == GLFW.GLFW_KEY_ESCAPE || modifier) {
+		if (!AutoEnchanter.INSTANCE.isRunning() || event.isEscape() || MODIFIER_KEYS.contains(event.key())) {
 			return true;
 		}
 		AutoEnchanter.INSTANCE.stop(Component.translatable("enchantorder.auto.stopped"), false);
