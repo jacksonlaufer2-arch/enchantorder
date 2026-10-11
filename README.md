@@ -1,6 +1,6 @@
 # Enchant Order
 
-A Fabric mod for Minecraft **26.2** that tells you the cheapest order to put enchanted books on an item, right next to the anvil.
+A Fabric mod for Minecraft **26.3** that tells you the cheapest order to put enchanted books on an item, right next to the anvil.
 It does the same job as the [Minecraft Enchantment Order Calculator](https://iamcal.github.io/enchant-order/), but in the game, using the item you're actually holding.
 
 ![The anvil with the enchantment list on the left and the best order on the right](docs/screenshot.png)
@@ -75,8 +75,8 @@ Books you don't have yet are assumed to be fresh. Renaming the item also costs 1
 
 ## Installing
 
-1. Install [Fabric Loader](https://fabricmc.net/use/) for Minecraft 26.2.
-2. Put **Fabric API** (for 26.2) in your `mods` folder.
+1. Install [Fabric Loader](https://fabricmc.net/use/) for Minecraft 26.3 (version 0.19.5 or newer).
+2. Put **Fabric API** (for 26.3) in your `mods` folder.
 3. Put `enchantorder-1.0.0.jar` in your `mods` folder too.
 
 The mod only changes your game window, so it works on any server, including ones without the mod. Auto mode just sends the same clicks you would make yourself.

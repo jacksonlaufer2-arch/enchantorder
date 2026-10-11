@@ -1,0 +1,31 @@
+# TEMPORARY: shows what changed between 26.2 and 26.3 in the vanilla classes the mod relies on
+# (removed once the port is done).
+name: vanilla-diff
+on:
+  push:
+    paths:
+      - .github/workflows/vanilla-diff.yml
+      - .github/vanilla-diff/**
+jobs:
+  diff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: 'microsoft'
+      - run: chmod +x ./gradlew
+      - name: sources for 26.2
+        run: |
+          sed -i 's/^minecraft_version=.*/minecraft_version=26.2/; s/^loader_version=.*/loader_version=0.19.3/; s/^fabric_api_version=.*/fabric_api_version=0.161.0+26.2/' gradle.properties
+          ./gradlew --no-configuration-cache genSources || true
+          bash .github/vanilla-diff/extract.sh 26.2 old
+      - name: sources for 26.3
+        run: |
+          sed -i 's/^minecraft_version=.*/minecraft_version=26.3/; s/^loader_version=.*/loader_version=0.19.5/; s/^fabric_api_version=.*/fabric_api_version=0.162.0+26.3/' gradle.properties
+          ./gradlew --no-configuration-cache genSources || true
+          bash .github/vanilla-diff/extract.sh 26.3 new
+      - name: diff
+        run: diff -ru old new || true
